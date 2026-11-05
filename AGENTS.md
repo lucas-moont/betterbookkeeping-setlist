@@ -4,6 +4,8 @@ This file gives coding agents guidance for working in this repository. `CLAUDE.m
 
 Setlist is a strength training log: users manage a library of movements, log sets (movement, weight, reps) in a current workout, and review completed workouts in their history. `README.md` describes the product and the open feature requests.
 
+`CONTEXT.md` is the domain glossary. Use its terms in code, UI copy, and commits (for example "Load", not "effective weight"). `docs/adr/` records decisions that are hard to reverse. Read the relevant ADR before changing movement ownership, weight types, body-weight sets, progression queries, password hashing, or workout constraints.
+
 ## Commands
 
 Use **Bun** for everything.
