@@ -26,6 +26,10 @@ _Avoid_: Active workout, open workout
 A Workout the user has marked complete. It is part of the user's history and its Sets no longer change.
 _Avoid_: Finished workout, past workout
 
+**Gym Visit**:
+A Completed Workout with no Sets, kept because the user chose to record that they went to the gym. Completing an empty Current Workout always asks whether to save it as a Gym Visit or discard it.
+_Avoid_: Empty workout, check-in, attendance
+
 **Set**:
 One Movement performed for a number of Reps at a Weight, inside a Workout.
 _Avoid_: Entry, exercise
