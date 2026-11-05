@@ -1,10 +1,21 @@
 #!/bin/sh
 
-BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
+# Git passes one line per ref being pushed on stdin:
+#   <local ref> <local sha> <remote ref> <remote sha>
+# Decide from the remote ref, not from the branch that happens to be checked out,
+# so `git push origin main` from a feature branch still runs the typecheck.
+PROTECTED=""
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+  case "$remote_ref" in
+    refs/heads/main | refs/heads/test | refs/heads/staging)
+      PROTECTED="${remote_ref#refs/heads/}"
+      ;;
+  esac
+done
 
-if  [ "$BRANCH_NAME" = "main" ] || [ "$BRANCH_NAME" = "test" ] || [ "$BRANCH_NAME" = "staging" ]; then
-  echo "Running typecheck for $BRANCH_NAME branch..."
+if [ -n "$PROTECTED" ]; then
+  echo "Running typecheck before pushing to $PROTECTED..."
   bun run typecheck
 else
-  echo "Skipping specific pre-push checks for branch: $BRANCH_NAME"
+  echo "Skipping pre-push typecheck: no protected branch in this push."
 fi
