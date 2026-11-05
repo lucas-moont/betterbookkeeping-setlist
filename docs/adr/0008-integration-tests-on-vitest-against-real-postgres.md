@@ -11,4 +11,6 @@ Domain modules (starting with the Current Workout module) are tested through the
 
 ## Consequences
 
-The test database grows with every run. `bun run db:reset` against it clears it when needed. Running these tests in CI will need a Postgres there, through Testcontainers or a service container; today CI runs only commitlint and the typecheck.
+The test database grows with every run. `bun run db:reset` against it clears it when needed. In CI, one job starts a Postgres 16 service container, runs `migrate deploy`, the integration tests, the build, and then the Playwright suite against the built server.
+
+Domain modules wrap their functions in `createServerOnlyFn`, which is an identity function at runtime (`@tanstack/start-fn-stubs`), so the tests need none of the TanStack Start or Nitro Vite plugins.

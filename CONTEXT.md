@@ -45,7 +45,7 @@ A mass in pounds, with decimals allowed (for example 72.5 lb). Every weight in S
 _Avoid_: Kilos, load (when you mean the number typed in a form)
 
 **Body Weight Entry**:
-The lifter's body weight on one calendar date. A user has at most one entry per date; recording again for the same date replaces it.
+The lifter's body weight on one calendar date. A user has at most one entry per date; recording again for the same date replaces it. The date can't be in the future.
 _Avoid_: Weigh-in, measurement
 
 **Latest Body Weight**:
@@ -57,11 +57,11 @@ The body weight copied into a Set of a Body-weight Movement when the Set is logg
 _Avoid_: Live body weight
 
 **Added Weight**:
-Extra weight on a Set of a Body-weight Movement, always with a short description of how it was added. Positive means extra load (a weighted vest, a dip belt); negative means assistance (a resistance band, an assisted machine).
+Extra weight on a Set of a Body-weight Movement, always with a short description of how it was added. Positive means extra load (a weighted vest, a dip belt); negative means assistance (a resistance band, an assisted machine). Assistance can't exceed the Body Weight Snapshot, so Load is never negative.
 _Avoid_: Extra weight, assistance weight
 
 **Load**:
-The total weight moved in one rep of a Set. For a Body-weight Movement it is the Body Weight Snapshot plus the Added Weight. For any other Movement it is the Weight.
+The total weight moved in one rep of a Set. For a Body-weight Movement it is the Body Weight Snapshot plus the Added Weight. For any other Movement it is the Weight. Always rounded to two decimals.
 _Avoid_: Effective weight, total weight
 
 ### Progress
