@@ -36,5 +36,65 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Run typecheck
         run: bun run typecheck
+
+  # Integration tests (Vitest) and e2e tests (Playwright) against a real Postgres (ADR 0008).
+  # The production build happens here, since the e2e tests run against it.
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: setlist
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Local CI-only credentials for the throwaway service container above.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/setlist
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/setlist_test
+      VITE_ENVIRONMENT: test
+      ENVIRONMENT: test
+      COOKIE_SECRET: ci-cookie-secret
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Apply migrations to the e2e database
+        run: bunx prisma migrate deploy
+      - name: Run integration tests
+        run: bun run test:integration
       - name: Build
         run: bun run build
+      - name: Start the built server
+        # nohup plus redirection, so the background server doesn't hold the step's output open.
+        run: |
+          nohup node .output/server/index.mjs > server.log 2>&1 &
+          curl -sf --retry 30 --retry-delay 1 --retry-all-errors http://localhost:3000/api/health || { cat server.log; exit 1; }
+      - name: Install Playwright browser
+        run: bunx playwright install --with-deps chromium
+      - name: Run e2e tests
+        run: bun run test
+      - name: Upload test artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts
+          path: |
+            playwright-report/
+            test-results/
+            server.log
+          retention-days: 7
