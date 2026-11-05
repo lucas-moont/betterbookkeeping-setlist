@@ -1,10 +1,10 @@
 # AGENTS.md
 
-This file gives coding agents guidance for working in this repository. `CLAUDE.md` is a symlink to it.
+This file gives coding agents guidance for working in this repository. `CLAUDE.md` imports it (`@AGENTS.md`), so the same guidance loads on every OS.
 
 Setlist is a strength training log: users manage a library of movements, log sets (movement, weight, reps) in a current workout, and review completed workouts in their history. `README.md` describes the product and the open feature requests.
 
-`CONTEXT.md` is the domain glossary. Use its terms in code, UI copy, and commits (for example "Load", not "effective weight"). `docs/adr/` records decisions that are hard to reverse. Read the relevant ADR before changing movement ownership, weight types, body-weight sets, progression queries, password hashing, or workout constraints.
+`CONTEXT.md` is the domain glossary. Use its terms in code, UI copy, and commits (for example "Load", not "effective weight"). `docs/adr/` records decisions that are hard to reverse. Read the matching ADR before changing movement ownership, weights, body-weight sets, progression queries, passwords or sessions, workout constraints, the test setup, or where files live.
 
 ## Commands
 
@@ -23,12 +23,16 @@ Use **Bun** for everything.
 
 - **Framework**: TanStack Start (React SSR) with Vite and Nitro
 - **Routing**: TanStack Router, file-based, in `src/routes/`. `src/routeTree.gen.ts` is generated and gitignored.
-- **Server state**: TanStack Query. Route loaders call `queryClient.ensureQueryData(...)` and components read the same data with `useSuspenseQuery`. Each route keeps its query options in a `-queries/` folder next to it.
-- **Server logic**: `createServerFn` functions live in `src/lib/*.server.ts`. Protected functions use `authMiddleware` from `src/lib/auth.server.ts`, which puts `context.user` on the request.
-- **Target layout (ADR 0010)**: the code is moving to one folder per domain concept, `src/lib/<domain>/`. Each folder has `index.ts` (the deep module, server only, wrapped in `createServerOnlyFn`), `<domain>.functions.ts` (the `createServerFn` adapters), and `queries.ts` (the key factory, `queryOptions`, and `mutationOptions` with `meta.invalidates`). New code follows this layout, not the `-queries/` and `*.server.ts` conventions above, which remain only until the query refactor moves the existing code.
+- **Domain folders (ADR 0010)**: each domain concept lives in `src/lib/<domain>/`:
+  - `index.ts`: the deep module, server only, wrapped in `createServerOnlyFn`
+  - `<domain>.functions.ts`: the `createServerFn` adapters. Protected ones use `authMiddleware`, which puts `context.user` on the request.
+  - `queries.ts`: the key factory, `queryOptions`, and `mutationOptions` with `meta.invalidates`
+- **Server state**: TanStack Query. Route loaders call `queryClient.ensureQueryData(...)` and components read the same data with `useSuspenseQuery`.
+- **Legacy locations**: until the query refactor lands, some existing code still sits in route `-queries/` folders and in `src/lib/*.server.ts` (including `authMiddleware` in `src/lib/auth.server.ts`). Write new code in the domain folders.
 - **Auth**: an HMAC-signed session cookie holding the user ID, set in `src/lib/auth.server.ts`. Signed-in routes live under `src/routes/__index/_layout*`, and the layout redirects to `/sign-in` when there's no user.
 - **Database**: PostgreSQL with Prisma 7 through the `@prisma/adapter-pg` driver adapter. The schema is `prisma/schema.prisma`, and the client is generated into `prisma/generated/` (gitignored). Get a client with `getServerSidePrismaClient()` from `src/lib/db.server.ts`.
 - **Styling**: Tailwind CSS v4. The brand color is `--color-primary` in `src/styles.css`. Small hand-rolled UI primitives live in `src/components/ui/`.
+- **New screen or substantial UI rework**: run `/prototype` to validate layout and flow, then `/impeccable` for the final design. Keep the identity the existing screens already set: slate neutrals, white cards, `--color-primary` as the accent, `lucide-react` icons, and the primitives in `src/components/ui/`.
 - **Path alias**: `@/*` maps to `src/*`.
 
 ## Configuration
