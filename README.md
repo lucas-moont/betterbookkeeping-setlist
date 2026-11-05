@@ -64,7 +64,7 @@ bun install
 bun run dev
 ```
 
-Open http://localhost:3000 and create an account. Pending database migrations run automatically every time the app container starts.
+Open http://localhost:3000 and create an account. Every time the app container starts, it runs `bun run db:prepare`: it applies pending database migrations, then converts any legacy plaintext passwords to argon2id hashes (a no-op once every password is hashed).
 
 Stop everything with `bun run dev:down`.
 
@@ -117,6 +117,7 @@ Postgres listens on host port `55432` instead of `5432` so it doesn't conflict w
 | `bun run dev:down`         | Stop the Docker services                                |
 | `bun run db:migrate`       | Create and apply a Prisma migration                     |
 | `bun run db:reset`         | Drop the database and re-apply all migrations           |
+| `bun run db:prepare`       | Apply pending migrations and hash legacy passwords      |
 | `bun run typecheck`        | Type-check the project                                  |
 | `bun run build`            | Build for production                                    |
 | `bun run test`             | Run the Playwright e2e tests                            |

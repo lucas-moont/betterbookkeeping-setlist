@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { createAccount } from "./helpers";
 
 type CapturedResponse = { url: string; body: string };
 
@@ -43,14 +44,7 @@ test.describe("Server secrets", () => {
     const password = "correct-horse-battery";
     const capturedResponses = recordResponses(page);
 
-    await page.goto("/create-account");
-    // Filling before hydration loses the input: React resets controlled fields.
-    await page.waitForLoadState("networkidle");
-    await page.getByLabel("Name").fill("Secrets Check");
-    await page.getByLabel("Email").fill(`e2e-secrets-${Date.now()}@example.com`);
-    await page.getByLabel("Password").fill(password);
-    await page.getByRole("button", { name: "Create account" }).click();
-    await expect(page.getByText("Logged in as")).toBeVisible();
+    await createAccount(page, `e2e-secrets-${Date.now()}@example.com`, password);
 
     // Client-side navigations: the user comes back through server function calls.
     await page.getByRole("link", { name: "Movements" }).click();

@@ -4,6 +4,7 @@ import { getCookie, setCookie, deleteCookie } from "@tanstack/react-start/server
 import { createMiddleware, createServerFn } from "@tanstack/react-start";
 import { sessionCookieName } from "./auth.consts";
 import { getServerSidePrismaClient } from "./db.server";
+import { hashPassword, verifyPassword } from "./auth/password";
 import { z } from "zod";
 
 // In production, use a proper secret from environment variables
@@ -83,7 +84,7 @@ export const signInServerFn = createServerFn({ method: "POST" })
       where: { email },
     });
 
-    if (!user || user.password !== password) {
+    if (!user || !(await verifyPassword(user.password, password))) {
       return { success: false as const, error: "Invalid email or password" };
     }
 
@@ -111,7 +112,7 @@ export const createAccountServerFn = createServerFn({ method: "POST" })
     }
 
     const user = await prisma.user.create({
-      data: { email, name, password },
+      data: { email, name, password: await hashPassword(password) },
     });
 
     setSessionCookie(user.id);
