@@ -79,6 +79,17 @@ bunx playwright install chromium
 bun run test
 ```
 
+To run the suite against another server, such as the production build, set `PLAYWRIGHT_BASE_URL` in your shell (for example `PLAYWRIGHT_BASE_URL=http://localhost:3100 bun run test`).
+
+### Running the integration tests
+
+```bash
+# Postgres must be running (bun run dev).
+bun run test:integration
+```
+
+The integration tests use Vitest against a real `setlist_test` database on the Docker Postgres. The first run creates it and applies the migrations. To point the tests at another database, set `TEST_DATABASE_URL` in your shell (`.env.local` doesn't apply here). The database name must end in `_test`.
+
 ### Changing the database schema
 
 1. Edit `prisma/schema.prisma`.
@@ -100,17 +111,18 @@ Postgres listens on host port `55432` instead of `5432` so it doesn't conflict w
 
 ### Scripts
 
-| Script               | What it does                                         |
-| -------------------- | ---------------------------------------------------- |
-| `bun run dev`        | Start Postgres and the app in Docker with watch mode |
-| `bun run dev:down`   | Stop the Docker services                             |
-| `bun run db:migrate` | Create and apply a Prisma migration                  |
-| `bun run db:reset`   | Drop the database and re-apply all migrations        |
-| `bun run typecheck`  | Type-check the project                               |
-| `bun run build`      | Build for production                                 |
-| `bun run test`       | Run the Playwright e2e tests                         |
-| `bun run test:ui`    | Run the e2e tests in Playwright's UI mode            |
-| `bun run format`     | Format the code with Prettier                        |
+| Script                     | What it does                                            |
+| -------------------------- | ------------------------------------------------------- |
+| `bun run dev`              | Start Postgres and the app in Docker with watch mode    |
+| `bun run dev:down`         | Stop the Docker services                                |
+| `bun run db:migrate`       | Create and apply a Prisma migration                     |
+| `bun run db:reset`         | Drop the database and re-apply all migrations           |
+| `bun run typecheck`        | Type-check the project                                  |
+| `bun run build`            | Build for production                                    |
+| `bun run test`             | Run the Playwright e2e tests                            |
+| `bun run test:ui`          | Run the e2e tests in Playwright's UI mode               |
+| `bun run test:integration` | Run the Vitest integration tests against `setlist_test` |
+| `bun run format`           | Format the code with Prettier                           |
 
 ## Tech stack
 
@@ -120,7 +132,7 @@ Postgres listens on host port `55432` instead of `5432` so it doesn't conflict w
 - **Database**: PostgreSQL and Prisma
 - **Styling**: Tailwind CSS v4
 - **Runtime**: Bun
-- **Testing**: Playwright (e2e)
+- **Testing**: Playwright (e2e) and Vitest (integration, against a real Postgres)
 
 ## Project structure
 

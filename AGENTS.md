@@ -18,6 +18,7 @@ Use **Bun** for everything.
 - `bun run typecheck`: generate the route tree and run `tsc --noEmit`
 - `bun run build`: production build
 - `bun run test`: Playwright e2e tests against the running app. Run `bunx playwright install chromium` once before the first run.
+- `bun run test:integration`: Vitest integration tests (`src/**/*.test.ts`) against the `setlist_test` database on the Docker Postgres, created and migrated on the first run (ADR 0008).
 
 ## Architecture
 
