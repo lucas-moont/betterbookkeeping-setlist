@@ -4,9 +4,11 @@ The UI shows a single Current Workout, but nothing stopped a user from having se
 
 ## Consequences
 
-The index can't be created while any user has more than one open workout, and existing rows don't record when they started. Before creating the index, the migration deletes empty open workouts, keeps the open workout with the most sets for each user, and marks the others as completed now. No set is lost.
+The index can't be created while any user has more than one open workout, and existing rows don't record when they started. Before creating the index, the migration deletes empty open workouts, keeps the open workout with the most sets for each user, and marks the others as completed now. No set is lost. Legacy sets carry no timestamp, so there is no truer completion time to use: each affected user gets one extra Training Day, on the day of the migration, in their Progression Charts. That's rare and accepted.
 
-Prisma doesn't know the index exists, so every new migration that `prisma migrate dev` generates will include a `DROP INDEX` for it. Delete that line before applying the migration.
+Starting a workout uses `INSERT ... ON CONFLICT ("userId") WHERE "completedAt" IS NULL DO NOTHING` and then reads the open workout. Catching P2002 and reading again would also work alone, but not inside a `$transaction`, because Postgres aborts the transaction after the error.
+
+Prisma doesn't know the index exists, so every new migration that `prisma migrate dev` generates will include a `DROP INDEX` for it. Delete that line before applying the migration. An integration test that runs two `start()` calls concurrently guards this: the test setup runs `migrate deploy`, so a migration that drops the index turns the test red.
 
 ## Considered Options
 

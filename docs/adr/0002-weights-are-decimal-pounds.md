@@ -10,4 +10,6 @@
 
 ## Consequences
 
-Prisma returns `Decimal` objects, which aren't plain JSON. Server functions convert them to `number` before returning data, so the client only ever sees numbers. Two decimal places is enough for lifting, so `number` loses nothing in practice.
+Prisma returns `Decimal` objects, which aren't plain JSON. Each domain module (`src/lib/<domain>/index.ts`, ADR 0010) converts them to `number` before returning, so server functions, tests, and the client only ever see numbers. Two decimal places is enough for lifting, so `number` loses nothing in storage.
+
+Arithmetic is where `number` can drift: in JavaScript `150.1 + 2.2` is `152.29999999999998`, while Postgres `numeric` gives `152.30`. Load is therefore computed in one place, `load()` in `src/lib/weight.ts`, which rounds to two decimals, and input validation rejects more than two decimals instead of rounding them silently.
