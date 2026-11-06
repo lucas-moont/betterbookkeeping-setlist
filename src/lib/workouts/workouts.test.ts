@@ -59,6 +59,17 @@ describe("addSet", () => {
     expect((await workouts.get(db, user.id))?.sets).toEqual([set]);
   });
 
+  test.each([135.55, 0.07, 9999.99])("keeps a decimal Weight of %s as a number", async (weight) => {
+    const user = await createUser(db);
+    const movement = await createMovement(db, user.id);
+    await workouts.start(db, user.id);
+
+    const { set } = expectOk(await workouts.addSet(db, user.id, { movementId: movement.id, reps: 5, weight }));
+
+    expect(set).toEqual({ id: expect.any(String), reps: 5, weight, load: weight, movement });
+    expect((await workouts.get(db, user.id))?.sets).toEqual([set]);
+  });
+
   test("returns no-current-workout when the user has none, and logs nothing", async () => {
     const user = await createUser(db);
     const movement = await createMovement(db, user.id);

@@ -62,6 +62,16 @@ test.describe("Workouts", () => {
       await expect(page.getByRole("columnheader", { name: movement })).toBeVisible();
       await expect(historyRows(page)).toHaveText([/315 lbs \/ 3 reps \/ 1 sets/]);
     });
+
+    test("should show a decimal weight in workout history", async ({ page }) => {
+      const movement = `Romanian Deadlift ${uniqueToken()}`;
+      await createMovement(page, movement);
+      await logCompletedWorkout(page, { movement, weight: 135.5, reps: 5 });
+
+      await openPage(page, "/workout-history");
+
+      await expect(historyRows(page)).toHaveText([/135.5 lbs \/ 5 reps \/ 1 sets/]);
+    });
   });
 
   test.describe("complete", () => {
