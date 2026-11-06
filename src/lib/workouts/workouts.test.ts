@@ -40,6 +40,17 @@ describe("start", () => {
 
     expect(await workouts.get(db, user.id)).toEqual({ id: workout.id, completedAt: null, sets: [] });
   });
+
+  test("after completing, starts a new empty Current Workout and keeps the old one in the history", async () => {
+    const user = await createUser(db);
+    const completed = await completeEmptyWorkout(user.id);
+
+    const { workout } = expectOk(await workouts.start(db, user.id));
+
+    expect(workout.id).not.toBe(completed);
+    expect(await workouts.get(db, user.id)).toEqual({ id: workout.id, completedAt: null, sets: [] });
+    expect(await historyIds(user.id)).toEqual([completed]);
+  });
 });
 
 describe("addSet", () => {
@@ -62,6 +73,19 @@ describe("addSet", () => {
 
     expect(result).toEqual({ ok: false, reason: "no-current-workout" });
     expect(await workouts.get(db, user.id)).toBeNull();
+  });
+
+  test("after completing, returns no-current-workout and leaves the Completed Workout's Sets alone", async () => {
+    const user = await createUser(db);
+    const movement = await createMovement(db);
+    await workouts.start(db, user.id);
+    const set = await logSet(user.id, movement.id);
+    await workouts.complete(db, user.id);
+
+    const result = await workouts.addSet(db, user.id, { movementId: movement.id, reps: 8, weight: 135 });
+
+    expect(result).toEqual({ ok: false, reason: "no-current-workout" });
+    expect((await workouts.history(db, user.id))[0]?.sets).toEqual([set]);
   });
 
   // Unchanged on purpose: the database rejects the unknown movement and the call throws. A
@@ -125,8 +149,11 @@ describe("removeSet", () => {
     await workouts.start(db, otherUser.id);
     const set = await logSet(owner.id, movement.id);
 
-    expect(await workouts.removeSet(db, otherUser.id, set.id)).toEqual({ ok: false, reason: "set-not-found" });
+    const forOthersSet = await workouts.removeSet(db, otherUser.id, set.id);
+    const forMissingSet = await workouts.removeSet(db, otherUser.id, crypto.randomUUID());
 
+    expect(forOthersSet).toEqual({ ok: false, reason: "set-not-found" });
+    expect(forOthersSet).toEqual(forMissingSet);
     expect((await workouts.get(db, owner.id))?.sets).toEqual([set]);
   });
 
@@ -227,13 +254,15 @@ describe("deleteWorkouts", () => {
     expect(await historyIds(user.id)).toEqual([kept]);
   });
 
-  test("never deletes another user's workouts", async () => {
+  test("never deletes another user's workouts, even mixed in with the caller's own", async () => {
     const user = await createUser(db);
     const owner = await createUser(db);
+    const own = await completeEmptyWorkout(user.id);
     const othersWorkout = await completeEmptyWorkout(owner.id);
 
-    await workouts.deleteWorkouts(db, user.id, [othersWorkout]);
+    await workouts.deleteWorkouts(db, user.id, [own, othersWorkout]);
 
+    expect(await historyIds(user.id)).toEqual([]);
     expect(await historyIds(owner.id)).toEqual([othersWorkout]);
   });
 });
