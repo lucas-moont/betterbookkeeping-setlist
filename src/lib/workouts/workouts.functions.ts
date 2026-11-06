@@ -41,33 +41,9 @@ export const completeWorkoutServerFn = createServerFn({ method: "POST" })
 export const addSetServerFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .inputValidator(setDraftSchema)
-  .handler(
-    async ({
-      context,
-      data,
-    }: {
-      context: { user: { id: string } };
-      data: SetDraft;
-    }) => {
-      const prisma = await getServerSidePrismaClient();
-      const workout = await prisma.workout.findFirst({
-        where: { userId: context.user.id, completedAt: null },
-      });
-      if (!workout) {
-        return { success: false, error: "No active workout" };
-      }
-      const set = await prisma.set.create({
-        data: {
-          workoutId: workout.id,
-          movementId: data.movementId,
-          reps: data.reps,
-          weight: data.weight,
-        },
-        include: { movement: true },
-      });
-      return { success: true, set };
-    },
-  );
+  .handler(async ({ context, data }: { context: { user: { id: string } }; data: SetDraft }) => {
+    return toServerResult(await workouts.addSet(await getServerSidePrismaClient(), context.user.id, data));
+  });
 
 export const deleteSetServerFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])

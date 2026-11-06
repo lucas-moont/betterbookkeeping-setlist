@@ -2,6 +2,7 @@ import { createServerOnlyFn } from "@tanstack/react-start";
 import type { DbClient } from "@/lib/db.server";
 import type { Result } from "@/lib/error-codes";
 import { load } from "@/lib/weight";
+import type { SetDraft } from "./set-draft";
 
 // The workouts module (ADR 0010): the rules of the Current Workout and of the history, in one place.
 // Every operation takes (db, userId, ...): it never opens its own client, so a caller can pass a
@@ -40,13 +41,34 @@ export const start = createServerOnlyFn(
   },
 );
 
+// "Which workout is the Current Workout" is answered here and nowhere else. Until the partial
+// index of ADR 0006 allows only one, a user can have several open workouts; ordering by id makes
+// every operation pick the same one that get shows.
+const currentWorkoutQuery = (userId: string) =>
+  ({ where: { userId, completedAt: null }, orderBy: { id: "desc" } }) as const;
+
+async function findCurrentWorkoutId(db: DbClient, userId: string): Promise<string | null> {
+  const workout = await db.workout.findFirst({ ...currentWorkoutQuery(userId), select: { id: true } });
+  return workout?.id ?? null;
+}
+
 /** The user's Current Workout with its Sets, or null when there is none. */
 export const get = createServerOnlyFn(async (db: DbClient, userId: string): Promise<CurrentWorkout | null> => {
-  const workout = await db.workout.findFirst({
-    where: { userId, completedAt: null },
-    orderBy: { id: "desc" },
-    select: workoutSelect,
-  });
+  const workout = await db.workout.findFirst({ ...currentWorkoutQuery(userId), select: workoutSelect });
   if (!workout) return null;
   return { id: workout.id, completedAt: null, sets: workout.sets.map(toSet) };
 });
+
+/** Adds a Set to the user's Current Workout. */
+export const addSet = createServerOnlyFn(
+  async (db: DbClient, userId: string, draft: SetDraft): Promise<Result<{ set: WorkoutSet }, "no-current-workout">> => {
+    const workoutId = await findCurrentWorkoutId(db, userId);
+    if (!workoutId) return { ok: false, reason: "no-current-workout" };
+
+    const set = await db.set.create({
+      data: { workoutId, movementId: draft.movementId, reps: draft.reps, weight: draft.weight },
+      select: workoutSelect.sets.select,
+    });
+    return { ok: true, set: toSet(set) };
+  },
+);
