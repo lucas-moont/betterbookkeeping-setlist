@@ -5,7 +5,8 @@ import { createMovement, createUser } from "@/test/factories";
 import * as workouts from "@/lib/workouts";
 
 // The workouts module tested through its interface against the real test database (ADR 0008).
-// Every test creates its own users, so tests run in parallel and never see each other's rows.
+// Every test creates its own users, so it never sees another test's rows, even with the other test
+// files running in parallel.
 // Checks go through the module too (get, history), never straight to the database.
 const db = await getServerSidePrismaClient();
 
@@ -94,12 +95,8 @@ describe("removeSet", () => {
     const user = await createUser(db);
     const movement = await createMovement(db);
     await workouts.start(db, user.id);
-    const { set: kept } = expectOk(
-      await workouts.addSet(db, user.id, { movementId: movement.id, reps: 5, weight: 185 }),
-    );
-    const { set: removed } = expectOk(
-      await workouts.addSet(db, user.id, { movementId: movement.id, reps: 10, weight: 135 }),
-    );
+    const kept = await logSet(user.id, movement.id, { reps: 5, weight: 185 });
+    const removed = await logSet(user.id, movement.id, { reps: 10, weight: 135 });
 
     expect(await workouts.removeSet(db, user.id, removed.id)).toEqual({ ok: true });
 
@@ -111,7 +108,7 @@ describe("removeSet", () => {
     const user = await createUser(db);
     const movement = await createMovement(db);
     await workouts.start(db, user.id);
-    const { set } = expectOk(await workouts.addSet(db, user.id, { movementId: movement.id, reps: 5, weight: 225 }));
+    const set = await logSet(user.id, movement.id);
     await workouts.complete(db, user.id);
 
     expect(await workouts.removeSet(db, user.id, set.id)).toEqual({ ok: false, reason: "set-not-found" });
@@ -126,7 +123,7 @@ describe("removeSet", () => {
     const movement = await createMovement(db);
     await workouts.start(db, owner.id);
     await workouts.start(db, otherUser.id);
-    const { set } = expectOk(await workouts.addSet(db, owner.id, { movementId: movement.id, reps: 5, weight: 225 }));
+    const set = await logSet(owner.id, movement.id);
 
     expect(await workouts.removeSet(db, otherUser.id, set.id)).toEqual({ ok: false, reason: "set-not-found" });
 
@@ -137,7 +134,7 @@ describe("removeSet", () => {
     const user = await createUser(db);
     const movement = await createMovement(db);
     await workouts.start(db, user.id);
-    const { set } = expectOk(await workouts.addSet(db, user.id, { movementId: movement.id, reps: 5, weight: 225 }));
+    const set = await logSet(user.id, movement.id);
     await workouts.removeSet(db, user.id, set.id);
 
     expect(await workouts.removeSet(db, user.id, set.id)).toEqual({ ok: false, reason: "set-not-found" });
@@ -149,7 +146,7 @@ describe("complete", () => {
     const user = await createUser(db);
     const movement = await createMovement(db);
     const { workout } = expectOk(await workouts.start(db, user.id));
-    const { set } = expectOk(await workouts.addSet(db, user.id, { movementId: movement.id, reps: 3, weight: 315 }));
+    const set = await logSet(user.id, movement.id, { reps: 3, weight: 315 });
 
     expect(await workouts.complete(db, user.id)).toEqual({ ok: true });
 
@@ -201,9 +198,7 @@ describe("history", () => {
     await completeEmptyWorkout(otherUser.id);
     await workouts.start(db, user.id);
 
-    const ids = (await workouts.history(db, user.id)).map((workout) => workout.id);
-
-    expect(ids).toEqual([second, first]);
+    expect(await historyIds(user.id)).toEqual([second, first]);
   });
 });
 
@@ -211,13 +206,12 @@ describe("deleteWorkouts", () => {
   test("deletes every workout in the list, Sets included", async () => {
     const user = await createUser(db);
     const movement = await createMovement(db);
-    await workouts.start(db, user.id);
-    await workouts.addSet(db, user.id, { movementId: movement.id, reps: 5, weight: 225 });
+    const { workout: withSets } = expectOk(await workouts.start(db, user.id));
+    await logSet(user.id, movement.id);
     await workouts.complete(db, user.id);
-    const [withSets] = await workouts.history(db, user.id);
     const empty = await completeEmptyWorkout(user.id);
 
-    expect(await workouts.deleteWorkouts(db, user.id, [withSets!.id, empty])).toEqual({ ok: true });
+    expect(await workouts.deleteWorkouts(db, user.id, [withSets.id, empty])).toEqual({ ok: true });
 
     expect(await workouts.history(db, user.id)).toEqual([]);
   });
@@ -230,7 +224,7 @@ describe("deleteWorkouts", () => {
 
     await workouts.deleteWorkouts(db, user.id, [first, last]);
 
-    expect((await workouts.history(db, user.id)).map((workout) => workout.id)).toEqual([kept]);
+    expect(await historyIds(user.id)).toEqual([kept]);
   });
 
   test("never deletes another user's workouts", async () => {
@@ -240,9 +234,18 @@ describe("deleteWorkouts", () => {
 
     await workouts.deleteWorkouts(db, user.id, [othersWorkout]);
 
-    expect((await workouts.history(db, owner.id)).map((workout) => workout.id)).toEqual([othersWorkout]);
+    expect(await historyIds(owner.id)).toEqual([othersWorkout]);
   });
 });
+
+/** Logs a Set in the user's Current Workout, for tests where adding it is setup, not the subject. */
+async function logSet(userId: string, movementId: string, { reps = 5, weight = 225 } = {}) {
+  return expectOk(await workouts.addSet(db, userId, { movementId, reps, weight })).set;
+}
+
+async function historyIds(userId: string) {
+  return (await workouts.history(db, userId)).map((workout) => workout.id);
+}
 
 async function completeEmptyWorkout(userId: string) {
   const { workout } = expectOk(await workouts.start(db, userId));
