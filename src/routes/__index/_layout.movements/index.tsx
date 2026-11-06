@@ -2,10 +2,9 @@ import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { createMovementServerFn } from "@/lib/movements/movements.functions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useSuspenseQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { movementsQueryOptions } from "./-queries/movements";
+import { useSuspenseQuery, useMutation } from "@tanstack/react-query";
+import { createMovementMutationOptions, movementsQueryOptions } from "@/lib/movements/queries";
 
 export const Route = createFileRoute("/__index/_layout/movements/")({
   loader: async ({ context }) => {
@@ -15,14 +14,12 @@ export const Route = createFileRoute("/__index/_layout/movements/")({
 });
 
 function MovementsPage() {
-  const queryClient = useQueryClient();
   const { data: movements } = useSuspenseQuery(movementsQueryOptions());
   const [name, setName] = useState("");
 
   const createMovementMutation = useMutation({
-    mutationFn: (name: string) => createMovementServerFn({ data: { name } }),
+    ...createMovementMutationOptions(),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: movementsQueryOptions().queryKey });
       setName("");
     },
   });

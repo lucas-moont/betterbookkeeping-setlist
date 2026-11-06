@@ -4,15 +4,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import {
-  createWorkoutServerFn,
-  completeWorkoutServerFn,
-  addSetServerFn,
-  deleteSetServerFn,
-} from "@/lib/workouts/workouts.functions";
 import { Play, Check, Plus, X } from "lucide-react";
-import { useSuspenseQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { currentWorkoutQueryOptions, movementsQueryOptions } from "./-queries/current-workout";
+import { useSuspenseQuery, useMutation } from "@tanstack/react-query";
+import {
+  addSetMutationOptions,
+  completeWorkoutMutationOptions,
+  currentWorkoutQueryOptions,
+  removeSetMutationOptions,
+  startWorkoutMutationOptions,
+} from "@/lib/workouts/queries";
+import { movementsQueryOptions } from "@/lib/movements/queries";
 
 export const Route = createFileRoute("/__index/_layout/current-workout/")({
   loader: async ({ context }) => {
@@ -25,42 +26,24 @@ export const Route = createFileRoute("/__index/_layout/current-workout/")({
 });
 
 function CurrentWorkoutPage() {
-  const queryClient = useQueryClient();
   const { data: workout } = useSuspenseQuery(currentWorkoutQueryOptions());
   const { data: movements } = useSuspenseQuery(movementsQueryOptions());
   const [selectedMovement, setSelectedMovement] = useState("");
   const [reps, setReps] = useState("");
   const [weight, setWeight] = useState("");
 
-  const createWorkoutMutation = useMutation({
-    mutationFn: () => createWorkoutServerFn(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: currentWorkoutQueryOptions().queryKey });
-    },
-  });
+  const startWorkoutMutation = useMutation(startWorkoutMutationOptions());
 
-  const completeWorkoutMutation = useMutation({
-    mutationFn: () => completeWorkoutServerFn(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: currentWorkoutQueryOptions().queryKey });
-    },
-  });
+  const completeWorkoutMutation = useMutation(completeWorkoutMutationOptions());
 
   const addSetMutation = useMutation({
-    mutationFn: (data: { movementId: string; reps: number; weight: number }) =>
-      addSetServerFn({ data }),
+    ...addSetMutationOptions(),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: currentWorkoutQueryOptions().queryKey });
       setReps("");
     },
   });
 
-  const deleteSetMutation = useMutation({
-    mutationFn: (setId: string) => deleteSetServerFn({ data: { setId } }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: currentWorkoutQueryOptions().queryKey });
-    },
-  });
+  const removeSetMutation = useMutation(removeSetMutationOptions());
 
   const handleAddSet = (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,9 +62,9 @@ function CurrentWorkoutPage() {
         <Card>
           <CardContent className="py-12 text-center">
             <p className="text-slate-500 mb-4">No active workout. Ready to start?</p>
-            <Button onClick={() => createWorkoutMutation.mutate()} size="lg">
+            <Button onClick={() => startWorkoutMutation.mutate()} size="lg">
               <Play className="w-4 h-4 mr-2" />
-              {createWorkoutMutation.isPending ? "Starting..." : "Start Workout"}
+              {startWorkoutMutation.isPending ? "Starting..." : "Start Workout"}
             </Button>
           </CardContent>
         </Card>
@@ -159,7 +142,7 @@ function CurrentWorkoutPage() {
                     aria-label="Remove set"
                     variant="ghost"
                     size="icon"
-                    onClick={() => deleteSetMutation.mutate(set.id)}
+                    onClick={() => removeSetMutation.mutate(set.id)}
                     className="h-8 w-8 text-slate-400">
                     <X className="w-4 h-4" />
                   </Button>
