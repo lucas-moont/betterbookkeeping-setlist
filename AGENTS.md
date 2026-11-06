@@ -47,3 +47,5 @@ Use **Bun** for everything.
 
 - Commits must follow Conventional Commits. The commitlint `commit-msg` hook enforces this.
 - Pushing to `main` runs `bun run typecheck` through the `pre-push` hook.
+- Never reference issue-tracker IDs (such as `ABC-123`) in code, comments, docs, commit messages, PR titles or bodies, or branch names. Readers of the repo can't open the tracker. To point at the reasoning behind a change, cite the matching ADR (for example `ADR 0005`). Where no ADR exists, describe the change in words or cite the PR number (`#8`).
+- Name branches `type(scope)/description`, using the Conventional Commits type of the main change, for example `fix(security)/hash-passwords-with-argon2id` or `chore/test-infra`.
