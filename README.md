@@ -145,9 +145,13 @@ src/
 ├── components/    # Shared UI components
 └── lib/
     ├── <domain>/  # One folder per concept (auth, movements, workouts, progression), with
+    │              #   index.ts               the domain rules (server only)
     │              #   <domain>.functions.ts  server functions
     │              #   queries.ts             query keys, queries and mutations
-    └── db.server.ts  # Prisma client (server only)
+    ├── error-codes.ts  # Every error code a domain can return, with its message
+    ├── weight.ts       # load(): the one Load formula
+    └── db.server.ts    # Prisma client (server only)
+src/test/          # Integration test setup and factories
 prisma/
 ├── schema.prisma  # Database schema
 └── migrations/    # Database migrations
@@ -199,3 +203,15 @@ Before, each page decided on its own what to refresh after a change: every `onSu
 - **Sign-in, sign-up and logout stay plain server-function calls.** The signed-in user lives in the router context, not in the query cache, so a mutation would have nothing to invalidate. The official Start auth examples call the function directly, too. Logout stays a full page load, which also throws away the previous user's cached data.
 
 Completing a workout now also invalidates the history. Since queries refetch whenever a page mounts, this changes nothing you can see today. It matters once some data is cached for longer.
+
+### Workout rules in one module, tested against a real Postgres
+
+Each workout server function used to do everything itself: validate the input, run one Prisma call, and work out on its own which workout was the user's open one. That rule was written four times, and the only tests were the e2e suite. The next features (one open workout per user, the empty-workout prompt, body-weight Sets) all add rules in exactly that spot. So the rules moved first, in a refactor that changes no behavior (ADR 0010).
+
+- **One module.** `src/lib/workouts/index.ts` has seven operations: `start`, `get`, `addSet`, `removeSet` and `complete` for the Current Workout, plus `history` and `deleteWorkouts`. Each one takes `(db, userId, ...)`, so a caller can pass a transaction, and each one only touches that user's rows. The server functions keep their names and become thin adapters: auth, zod validation, the module call, and the error translation. The routes didn't change.
+- **One definition of "Current Workout".** `currentWorkoutWhere(userId)` is the only place that says "this user's workout with no completion time". Before, `get` sorted the open workouts and `addSet` and `complete` didn't, so a user with two open workouts could add a Set to the one the screen wasn't showing. Now all three pick the same one. Only one open workout per user arrives later with a partial index (ADR 0006).
+- **Errors as values.** Expected failures (`no-current-workout`, `set-not-found`) come back as `{ ok: false, reason }`. Their messages live in `src/lib/error-codes.ts`, and `toServerResult` turns them into the `{ success, code, error }` that reaches the browser. Removing a Set of a Completed Workout, or of another user, returns the same `set-not-found` as an id that doesn't exist, so the answer never reveals which ids are taken. Database errors still throw. For example, an unknown movement still fails the way it did before, until movements get an owner (ADR 0001).
+- **Less data to the browser.** The module selects only the columns the screens use, so `userId` and the foreign-key ids no longer leave the server. Sets also carry their `load`, computed by `load()` in `src/lib/weight.ts`, the one Load formula. The screens still show `weight`, which is the same number until body-weight Sets exist.
+- **Integration tests through the module.** `src/lib/workouts/workouts.test.ts` runs every operation against the `setlist_test` database, one new user per test, and checks outcomes through `get` and `history`, never by reading tables. The cases come from `docs/research/current-workout-test-scenarios.md`: every authorization test uses two users, and every invalid action, such as completing twice or removing a Set of a Completed Workout, checks both the error and that nothing changed. As in #13, each guard was broken by hand once to watch its test go red. One of those runs found a gap: no test failed when `addSet` wrote into a completed workout, so a test for it was added.
+- **Kept as it was, on purpose.** `start` still creates a workout every time, `complete` still finds and then updates, and `deleteWorkouts` still runs two statements without a transaction, because Prisma 7.2 can't nest one inside a caller's transaction. `deleteWorkouts` also accepts a Current Workout's id if one is sent straight to the server function. The screen never sends one, and the empty-workout flow will restrict it to Completed Workouts.
+- **Test factories.** `src/test/factories.ts` creates users and movements with unique names. Factory users get a real argon2id hash, because since ADR 0005 every account stores one, and plaintext only exists as legacy data. That matters: `hashLegacyPasswords` scans the whole test database, so plaintext users left behind by earlier runs made its test slower until it timed out.

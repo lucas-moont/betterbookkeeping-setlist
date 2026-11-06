@@ -9,6 +9,7 @@ import {
   getCurrentWorkoutServerFn,
   getWorkoutHistoryServerFn,
 } from "./workouts.functions";
+import type { SetDraft } from "./set-draft";
 
 // The Current Workout and the history read the same rows, so they share the "workouts" root.
 const workoutsRoot = ["workouts"] as const;
@@ -39,7 +40,7 @@ export const startWorkoutMutationOptions = () =>
 
 export const addSetMutationOptions = () =>
   mutationOptions({
-    mutationFn: (data: { movementId: string; reps: number; weight: number }) => addSetServerFn({ data }),
+    mutationFn: (data: SetDraft) => addSetServerFn({ data }),
     meta: { invalidates: [workoutKeys.current] },
   });
 

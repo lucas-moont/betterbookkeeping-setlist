@@ -1,5 +1,8 @@
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../../prisma/generated/client/client";
+import { PrismaClient, type Prisma } from "../../prisma/generated/client/client";
+
+/** What a domain module takes as `db`: the client, or a transaction client so the caller can compose operations (ADR 0010). */
+export type DbClient = PrismaClient | Prisma.TransactionClient;
 
 function readDatabaseUrl(): string {
   const url = process.env.DATABASE_URL?.trim();
