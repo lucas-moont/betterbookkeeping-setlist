@@ -147,3 +147,20 @@ prisma/
 └── migrations/    # Database migrations
 e2e/               # Playwright tests
 ```
+
+## Changes to the starter code
+
+### Removed unused code
+
+Nothing in the repo used these, so they were deleted:
+
+- `src/lib/utils.ts`: everything except `cn` (`typedKeys`, `pick`, `assertExists`, `truthyMap`, `levenshteinDistance`, `stringSimilarity`)
+- `src/lib/types.ts` (`UnwrapAsyncIterator`, `UnionToIntersection`, `Prettify`)
+- `src/components/ui/dropdown-menu.tsx`
+
+Code that looks important but that nothing calls slows down anyone reading the project. Before deleting it, each item was checked against the assignment above, and none of the planned features needs it:
+
+- The progression chart's movement and metric pickers are form fields, which `src/components/ui/select.tsx` already covers. The dropdown is an action menu (`role="menu"`), not a form field.
+- Deleting several workouts from history already works with checkboxes and a button, so the e2e cases in `e2e/workouts.spec.ts` don't need a menu either.
+- The empty-workout prompt researched in `docs/research/empty-workouts.md` needs a dialog, not a menu.
+- No feature asks for fuzzy matching of movement names. If a "did you mean…?" prompt is ever needed, `levenshteinDistance` is still in the git history.
