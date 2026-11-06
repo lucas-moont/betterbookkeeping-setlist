@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { toServerResult } from "./error-codes";
+import { toServerResult, unwrap } from "./error-codes";
 
 describe("toServerResult", () => {
   test("turns a success into { success: true } with the data beside it", () => {
@@ -27,5 +27,27 @@ describe("toServerResult", () => {
       code: "movement-not-found",
       error: "Movement not found",
     });
+  });
+});
+
+describe("unwrap", () => {
+  test("hands a success back as it is", () => {
+    const result = { success: true as const, set: { id: "set-1" } };
+
+    expect(unwrap(result)).toBe(result);
+  });
+
+  // TanStack Query only runs onError (the toast, a form message) and skips the invalidation for a
+  // mutation that throws, so a failure must not come back as a value.
+  test("throws a failure as a ServerResultError with its code and message", () => {
+    const failure = { success: false as const, code: "movement-name-taken" as const, error: "You already have a movement with this name" };
+
+    expect(() => unwrap(failure)).toThrow(
+      expect.objectContaining({
+        name: "ServerResultError",
+        code: "movement-name-taken",
+        message: "You already have a movement with this name",
+      }),
+    );
   });
 });

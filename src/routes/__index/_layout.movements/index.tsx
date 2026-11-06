@@ -3,7 +3,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import { useSuspenseQuery, useMutation } from "@tanstack/react-query";
+import { isFormError } from "@/lib/server-mutation";
+import { movementNameMaxLength, movementNameSchema } from "@/lib/movements/name";
 import { createMovementMutationOptions, movementsQueryOptions } from "@/lib/movements/queries";
 
 export const Route = createFileRoute("/__index/_layout/movements/")({
@@ -17,17 +20,23 @@ function MovementsPage() {
   const { data: movements } = useSuspenseQuery(movementsQueryOptions());
   const [name, setName] = useState("");
 
+  const createMovementOptions = createMovementMutationOptions();
   const createMovementMutation = useMutation({
-    ...createMovementMutationOptions(),
+    ...createMovementOptions,
     onSuccess: () => {
       setName("");
     },
   });
+  // A refused name (the mutation's formErrors) shows under the field, and the typed name stays so
+  // the user can fix it. Every other error gets the global toast instead.
+  const { error } = createMovementMutation;
+  const nameError = isFormError(error, createMovementOptions.meta) ? (error?.message ?? "") : "";
+  const canSubmit = movementNameSchema.safeParse(name).success;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
-    createMovementMutation.mutate(name.trim());
+    if (!canSubmit) return;
+    createMovementMutation.mutate(name);
   };
 
   return (
@@ -39,17 +48,30 @@ function MovementsPage() {
           <CardTitle>Add New Movement</CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="flex gap-3">
-            <Input
-              aria-label="Movement name"
-              placeholder="Movement name (e.g. Bench Press)"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="flex-1"
-            />
-            <Button type="submit" disabled={!name.trim()}>
-              {createMovementMutation.isPending ? "Adding..." : "Add"}
-            </Button>
+          <form onSubmit={handleSubmit} className="space-y-2">
+            <div className="flex gap-3">
+              <Input
+                aria-label="Movement name"
+                aria-invalid={nameError ? true : undefined}
+                aria-describedby={nameError ? "movement-name-error" : undefined}
+                placeholder="Movement name (e.g. Bench Press)"
+                value={name}
+                maxLength={movementNameMaxLength}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  if (nameError) createMovementMutation.reset();
+                }}
+                className={cn("flex-1", nameError && "border-red-300")}
+              />
+              <Button type="submit" disabled={!canSubmit}>
+                {createMovementMutation.isPending ? "Adding..." : "Add"}
+              </Button>
+            </div>
+            {nameError && (
+              <p id="movement-name-error" role="alert" className="text-sm text-red-600">
+                {nameError}
+              </p>
+            )}
           </form>
         </CardContent>
       </Card>

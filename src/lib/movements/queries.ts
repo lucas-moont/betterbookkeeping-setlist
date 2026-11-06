@@ -1,4 +1,5 @@
-import { mutationOptions, queryOptions } from "@tanstack/react-query";
+import { queryOptions } from "@tanstack/react-query";
+import { serverMutationOptions } from "@/lib/server-mutation";
 import { createMovementServerFn, getMovementsServerFn } from "./movements.functions";
 
 export const movementKeys = {
@@ -11,8 +12,10 @@ export const movementsQueryOptions = () =>
     queryFn: () => getMovementsServerFn(),
   });
 
+// A taken name shows under the name field, not in a toast.
 export const createMovementMutationOptions = () =>
-  mutationOptions({
+  serverMutationOptions({
     mutationFn: (name: string) => createMovementServerFn({ data: { name } }),
-    meta: { invalidates: [movementKeys.all] },
+    invalidates: [movementKeys.all],
+    formErrors: ["movement-name-taken"],
   });
