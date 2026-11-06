@@ -12,8 +12,7 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(({ className, children
       "disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-gray-50",
       className,
     )}
-    {...props}
-  >
+    {...props}>
     {children}
   </select>
 ));

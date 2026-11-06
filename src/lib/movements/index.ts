@@ -17,7 +17,11 @@ const movementSelect = { id: true, name: true } as const;
  * name the user already has, ignoring case and the whitespace around it, returns movement-name-taken.
  */
 export const create = createServerOnlyFn(
-  async (db: DbClient, userId: string, name: string): Promise<Result<{ movement: Movement }, "movement-name-taken">> => {
+  async (
+    db: DbClient,
+    userId: string,
+    name: string,
+  ): Promise<Result<{ movement: Movement }, "movement-name-taken">> => {
     // INSERT ... ON CONFLICT DO NOTHING: the unique (userId, nameKey) index decides, so two
     // concurrent creates can't both get in, and nothing throws. A caught P2002 would abort a
     // transaction the caller passed in as db (ADR 0006).

@@ -28,7 +28,9 @@ describe("errorToastMessage", () => {
 
   // An unexpected error can carry a Prisma or zod message that names tables and columns.
   test("is a generic message for anything else, so internal details never reach the screen", () => {
-    const prismaError = new Error('Invalid `prisma.set.create()` invocation: Argument `reps`: Invalid value provided. Expected Int');
+    const prismaError = new Error(
+      "Invalid `prisma.set.create()` invocation: Argument `reps`: Invalid value provided. Expected Int",
+    );
 
     expect(errorToastMessage(prismaError)).toBe("Something went wrong. Please try again.");
   });

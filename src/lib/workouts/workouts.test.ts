@@ -100,7 +100,11 @@ describe("addSet", () => {
     const othersMovement = await createMovement(db, owner.id);
     await workouts.start(db, user.id);
 
-    const forOthersMovement = await workouts.addSet(db, user.id, { movementId: othersMovement.id, reps: 5, weight: 225 });
+    const forOthersMovement = await workouts.addSet(db, user.id, {
+      movementId: othersMovement.id,
+      reps: 5,
+      weight: 225,
+    });
     const forMissingMovement = await workouts.addSet(db, user.id, {
       movementId: crypto.randomUUID(),
       reps: 5,
