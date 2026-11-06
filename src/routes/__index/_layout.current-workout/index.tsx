@@ -14,7 +14,7 @@ import {
   startWorkoutMutationOptions,
 } from "@/lib/workouts/queries";
 import { movementsQueryOptions } from "@/lib/movements/queries";
-import { formatDate, formatWeight } from "@/lib/format";
+import { formatCalendarDate, formatWeight, todayIsoDate } from "@/lib/format";
 import { useTimeZone } from "@/lib/time-zone";
 import { maxWeight, weightStep } from "@/lib/weight";
 import { maxReps } from "@/lib/workouts/set-draft";
@@ -90,7 +90,7 @@ function CurrentWorkoutPage() {
       <Card>
         <CardHeader>
           <CardTitle>
-            {formatDate(new Date(), timeZone, "long")}
+            {formatCalendarDate(todayIsoDate(timeZone), "long")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">

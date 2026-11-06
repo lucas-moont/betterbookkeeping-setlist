@@ -1,5 +1,8 @@
-import { describe, expect, test } from "vitest";
-import { formatDate, formatWeight } from "./format";
+import { afterEach, describe, expect, test } from "vitest";
+import { formatCalendarDate, formatDate, formatWeight, todayIsoDate } from "./format";
+
+// 22:00 in São Paulo (UTC-3) is already the next day in UTC.
+const lateEveningInSaoPaulo = new Date("2026-11-07T01:00:00Z");
 
 describe("formatWeight", () => {
   test.each([
@@ -20,9 +23,6 @@ describe("formatWeight", () => {
 });
 
 describe("formatDate", () => {
-  // 22:00 in São Paulo (UTC-3) is already the next day in UTC.
-  const lateEveningInSaoPaulo = new Date("2026-11-07T01:00:00Z");
-
   test("uses the given time zone, not the server's", () => {
     expect(formatDate(lateEveningInSaoPaulo, "America/Sao_Paulo")).toBe("Nov 6, 2026");
     expect(formatDate(lateEveningInSaoPaulo, "UTC")).toBe("Nov 7, 2026");
@@ -30,5 +30,34 @@ describe("formatDate", () => {
 
   test("spells the day out in the long style", () => {
     expect(formatDate(lateEveningInSaoPaulo, "America/Sao_Paulo", "long")).toBe("Friday, November 6, 2026");
+  });
+});
+
+describe("todayIsoDate", () => {
+  test("is the calendar date in the given time zone", () => {
+    expect(todayIsoDate("America/Sao_Paulo", lateEveningInSaoPaulo)).toBe("2026-11-06");
+    expect(todayIsoDate("UTC", lateEveningInSaoPaulo)).toBe("2026-11-07");
+    expect(todayIsoDate("Pacific/Kiritimati", new Date("2026-01-05T10:30:00Z"))).toBe("2026-01-06");
+  });
+});
+
+describe("formatCalendarDate", () => {
+  const serverTimeZone = process.env.TZ;
+  afterEach(() => {
+    process.env.TZ = serverTimeZone;
+  });
+
+  // A date with no time of day: "2026-11-06" read as UTC midnight and shown in São Paulo would be
+  // Nov 5, so the result must not depend on the zone the code runs in.
+  test("shows the same day in any time zone", () => {
+    process.env.TZ = "America/Sao_Paulo";
+    expect(formatCalendarDate("2026-11-06")).toBe("Nov 6, 2026");
+    process.env.TZ = "Pacific/Kiritimati";
+    expect(formatCalendarDate("2026-11-06")).toBe("Nov 6, 2026");
+  });
+
+  test("round-trips today", () => {
+    const today = todayIsoDate("America/Sao_Paulo", lateEveningInSaoPaulo);
+    expect(formatCalendarDate(today, "long")).toBe("Friday, November 6, 2026");
   });
 });
