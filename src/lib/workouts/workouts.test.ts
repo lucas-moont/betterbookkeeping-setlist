@@ -82,15 +82,33 @@ describe("addSet", () => {
     expect((await workouts.history(db, user.id))[0]?.sets).toEqual([set]);
   });
 
-  // Unchanged on purpose: the database rejects the unknown movement and the call throws. A
-  // movement-not-found code arrives with movement ownership (ADR 0001).
   test("fails on a Movement that doesn't exist, and adds nothing", async () => {
     const user = await createUser(db);
     await workouts.start(db, user.id);
 
-    await expect(
-      workouts.addSet(db, user.id, { movementId: crypto.randomUUID(), reps: 5, weight: 225 }),
-    ).rejects.toThrow();
+    const result = await workouts.addSet(db, user.id, { movementId: crypto.randomUUID(), reps: 5, weight: 225 });
+
+    expect(result).toEqual({ ok: false, reason: "movement-not-found" });
+    expect((await workouts.get(db, user.id))?.sets).toEqual([]);
+  });
+
+  // Movements belong to one user (ADR 0001). Same answer as for a Movement that doesn't exist, so
+  // nobody learns which ids belong to others.
+  test("fails on another user's Movement the same way, and adds nothing", async () => {
+    const user = await createUser(db);
+    const owner = await createUser(db);
+    const othersMovement = await createMovement(db, owner.id);
+    await workouts.start(db, user.id);
+
+    const forOthersMovement = await workouts.addSet(db, user.id, { movementId: othersMovement.id, reps: 5, weight: 225 });
+    const forMissingMovement = await workouts.addSet(db, user.id, {
+      movementId: crypto.randomUUID(),
+      reps: 5,
+      weight: 225,
+    });
+
+    expect(forOthersMovement).toEqual({ ok: false, reason: "movement-not-found" });
+    expect(forOthersMovement).toEqual(forMissingMovement);
     expect((await workouts.get(db, user.id))?.sets).toEqual([]);
   });
 
