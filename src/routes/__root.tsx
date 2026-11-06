@@ -2,7 +2,7 @@ import { HeadContent, Scripts, createRootRouteWithContext, useRouter } from "@ta
 import { useState } from "react";
 import styles from "../styles.css?url";
 import { type QueryClient } from "@tanstack/react-query";
-import { getUserServerFn } from "@/lib/auth.server";
+import { getUserServerFn } from "@/lib/auth/auth.functions";
 import { TanStackDevtools } from "@tanstack/react-devtools";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { ReactQueryDevtoolsPanel } from "@tanstack/react-query-devtools";
