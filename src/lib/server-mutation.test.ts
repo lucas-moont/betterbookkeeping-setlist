@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { ServerResultError } from "@/lib/error-codes";
-import { isFormError } from "./server-mutation";
+import { errorToastMessage, isFormError } from "./server-mutation";
 
 // Decides which errors the global toast in src/router.tsx leaves to the page's form.
 describe("isFormError", () => {
@@ -18,5 +18,18 @@ describe("isFormError", () => {
 
   test("is false for any other error, such as the network failing", () => {
     expect(isFormError(new Error("Failed to fetch"), { formErrors: ["movement-name-taken"] })).toBe(false);
+  });
+});
+
+describe("errorToastMessage", () => {
+  test("is the message of the error code", () => {
+    expect(errorToastMessage(new ServerResultError("set-not-found", "Set not found"))).toBe("Set not found");
+  });
+
+  // An unexpected error can carry a Prisma or zod message that names tables and columns.
+  test("is a generic message for anything else, so internal details never reach the screen", () => {
+    const prismaError = new Error('Invalid `prisma.set.create()` invocation: Argument `reps`: Invalid value provided. Expected Int');
+
+    expect(errorToastMessage(prismaError)).toBe("Something went wrong. Please try again.");
   });
 });

@@ -24,3 +24,14 @@ export function serverMutationOptions<TVariables = void, T extends object = obje
 export function isFormError(error: unknown, meta: { formErrors?: readonly ErrorCode[] } | undefined): boolean {
   return error instanceof ServerResultError && (meta?.formErrors?.includes(error.code) ?? false);
 }
+
+/**
+ * What the error toast says. An error code has a message written for the user. Anything else (a
+ * database or validation error, the network) can carry internal details such as table and column
+ * names, so it gets a generic message, and the details go to the console only.
+ */
+export function errorToastMessage(error: unknown): string {
+  if (error instanceof ServerResultError) return error.message;
+  console.error(error);
+  return "Something went wrong. Please try again.";
+}

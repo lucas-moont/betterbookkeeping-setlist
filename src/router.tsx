@@ -6,7 +6,7 @@ import { routeTree } from "./routeTree.gen";
 import { MutationCache, QueryClient, matchQuery, type QueryKey } from "@tanstack/react-query";
 import { toast } from "react-toastify";
 import type { ErrorCode } from "@/lib/error-codes";
-import { isFormError } from "@/lib/server-mutation";
+import { errorToastMessage, isFormError } from "@/lib/server-mutation";
 
 // Create a new router instance
 export const getRouter = () => {
@@ -24,7 +24,7 @@ export const getRouter = () => {
       // Runs for every mutation, besides the page's own onError. A code the mutation lists in
       // meta.formErrors is shown by its form, next to the field, so it gets no toast.
       onError: (error, _variables, _onMutateResult, mutation) => {
-        if (!isFormError(error, mutation.meta)) toast.error(error.message);
+        if (!isFormError(error, mutation.meta)) toast.error(errorToastMessage(error));
       },
     }),
   });
