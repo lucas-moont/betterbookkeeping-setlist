@@ -40,7 +40,11 @@ describe("unwrap", () => {
   // TanStack Query only runs onError (the toast, a form message) and skips the invalidation for a
   // mutation that throws, so a failure must not come back as a value.
   test("throws a failure as a ServerResultError with its code and message", () => {
-    const failure = { success: false as const, code: "movement-name-taken" as const, error: "You already have a movement with this name" };
+    const failure = {
+      success: false as const,
+      code: "movement-name-taken" as const,
+      error: "You already have a movement with this name",
+    };
 
     expect(() => unwrap(failure)).toThrow(
       expect.objectContaining({

@@ -9,7 +9,11 @@ import { type ErrorCode, type ServerResult, ServerResultError, unwrap } from "@/
  * - `invalidates` lists the key prefixes a success makes stale. `formErrors` lists the codes the
  *   screen shows next to a field instead of in a toast.
  */
-export function serverMutationOptions<TVariables = void, T extends object = object, E extends ErrorCode = never>(options: {
+export function serverMutationOptions<
+  TVariables = void,
+  T extends object = object,
+  E extends ErrorCode = never,
+>(options: {
   mutationFn: (variables: TVariables) => Promise<ServerResult<T, E>>;
   invalidates: readonly QueryKey[];
   formErrors?: readonly E[];

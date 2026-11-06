@@ -95,7 +95,10 @@ function CurrentWorkoutPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <form onSubmit={handleAddSet} className="flex gap-2 items-center">
-            <Select aria-label="Movement" value={selectedMovement} onChange={(e) => setSelectedMovement(e.target.value)}>
+            <Select
+              aria-label="Movement"
+              value={selectedMovement}
+              onChange={(e) => setSelectedMovement(e.target.value)}>
               <option value="">Select movement</option>
               {movements.map((m) => (
                 <option key={m.id} value={m.id}>
