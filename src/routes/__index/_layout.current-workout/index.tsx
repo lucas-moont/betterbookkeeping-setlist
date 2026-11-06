@@ -14,6 +14,7 @@ import {
   startWorkoutMutationOptions,
 } from "@/lib/workouts/queries";
 import { movementsQueryOptions } from "@/lib/movements/queries";
+import { formatWeight } from "@/lib/format";
 import { maxWeight, weightStep } from "@/lib/weight";
 import { maxReps } from "@/lib/workouts/set-draft";
 
@@ -143,7 +144,7 @@ function CurrentWorkoutPage() {
                   <div>
                     <span className="font-medium">{set.movement.name}</span>
                     <span className="text-slate-500 ml-2">
-                      {set.reps} reps × {set.weight} lbs
+                      {set.reps} reps × {formatWeight(set.weight)}
                     </span>
                   </div>
                   <Button

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Trash2 } from "lucide-react";
 import { deleteWorkoutsMutationOptions, workoutHistoryQueryOptions } from "@/lib/workouts/queries";
 import { useSuspenseQuery, useMutation } from "@tanstack/react-query";
+import { formatWeight } from "@/lib/format";
 
 export const Route = createFileRoute("/__index/_layout/workout-history/")({
   loader: async ({ context }) => {
@@ -142,7 +143,7 @@ function WorkoutHistoryPage() {
                           const numSets = movementSets.length;
                           return (
                             <td key={movementId} className="py-3 px-4 text-right text-slate-600">
-                              {maxWeight} lbs / {avgReps} reps / {numSets} sets
+                              {formatWeight(maxWeight)} / {avgReps} reps / {numSets} sets
                             </td>
                           );
                         })}

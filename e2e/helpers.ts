@@ -41,7 +41,7 @@ export async function addSet(page: Page, set: NewSet) {
     page
       .getByRole("listitem")
       .filter({ hasText: set.movement })
-      .filter({ hasText: `${set.reps} reps × ${set.weight} lbs` }),
+      .filter({ hasText: `${set.reps} reps × ${set.weight} lb` }),
   ).toBeVisible();
 }
 
