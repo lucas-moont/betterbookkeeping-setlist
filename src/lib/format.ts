@@ -10,3 +10,17 @@ const weightFormat = new Intl.NumberFormat(locale, { maximumFractionDigits: 2 })
 export function formatWeight(pounds: number): string {
   return `${weightFormat.format(pounds)} lb`;
 }
+
+const dateStyles = {
+  short: { month: "short", day: "numeric", year: "numeric" },
+  long: { weekday: "long", month: "long", day: "numeric", year: "numeric" },
+} satisfies Record<string, Intl.DateTimeFormatOptions>;
+
+/**
+ * An instant (such as completedAt) as the date it was in the user's time zone: "Nov 6, 2026", or
+ * "Friday, November 6, 2026" in the long style. The zone comes from useTimeZone(); the server's own
+ * zone would show São Paulo's evening as the next day.
+ */
+export function formatDate(instant: Date, timeZone: string, style: keyof typeof dateStyles = "short"): string {
+  return new Intl.DateTimeFormat(locale, { ...dateStyles[style], timeZone }).format(instant);
+}
