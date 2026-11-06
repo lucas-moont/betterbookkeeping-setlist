@@ -210,6 +210,7 @@ Plain and dependable.
 - **Destructive:** red-600 fill, white text, red-700 on hover.
 - **Focus:** a 2px Chalk Rust ring at 50% opacity with a 2px offset. Disabled is 50% opacity.
 - **Icons:** a 16px lucide icon before the label, 8px gap.
+- **Cursor:** the pointer. Tailwind v4's preflight leaves buttons on the default cursor, so one base rule in `src/styles.css` sets it for everything clickable. Disabled buttons keep the default cursor.
 
 ### Cards
 
@@ -224,6 +225,7 @@ Plain and dependable.
 - **Focus:** the border turns Chalk Rust and a 2px Chalk Rust ring at 50% opacity appears.
 - **Disabled:** 50% opacity on a gray-50 fill.
 - **Labels:** 14px 500-weight gray-700 above the field (auth forms) or an `aria-label` when the form is a single inline row.
+- **Cursor:** text fields keep the text cursor. Selects, checkboxes, radios, and labels tied to a field show the pointer.
 
 ### List Rows
 
@@ -248,6 +250,7 @@ Plain and dependable.
 - **Do** put content in white cards on the slate-50 ground, and put repeated items inside a card as slate-50 rows with 8px gaps.
 - **Do** use Chalk Rust only for the primary action, links, focus, selection, and data that needs one highlight color.
 - **Do** use `lucide-react` icons at 16px (`w-4 h-4`) beside text.
+- **Do** show the pointer cursor on everything clickable: buttons, links, selects, checkboxes, radios, and `<summary>`. Text fields and textareas keep the text cursor.
 - **Do** write UI copy with the terms in `CONTEXT.md` and show weights in pounds.
 
 ### Don't:
