@@ -141,9 +141,13 @@ Postgres listens on host port `55432` instead of `5432` so it doesn't conflict w
 
 ```
 src/
-├── routes/        # File-based routes; each page keeps its queries in a -queries/ folder
+├── routes/        # File-based routes: pages, loaders and local UI state
 ├── components/    # Shared UI components
-└── lib/           # Server functions, auth, and database access
+└── lib/
+    ├── <domain>/  # One folder per concept (auth, movements, workouts, progression), with
+    │              #   <domain>.functions.ts  server functions
+    │              #   queries.ts             query keys, queries and mutations
+    └── db.server.ts  # Prisma client (server only)
 prisma/
 ├── schema.prisma  # Database schema
 └── migrations/    # Database migrations
@@ -183,3 +187,15 @@ How the suite is built, and why:
 - **Safe with a shared movement library.** Every user still sees every movement (ADR 0001 changes that), and parallel tests keep adding to the list. Each test gives its movements a random suffix and checks that the list contains them, never that it equals them.
 - **Accessible names.** The movement name input, the set form fields, the icon-only "Remove set" button and the history checkboxes had no accessible name, so screen readers announced them as unnamed controls. They now have `aria-label`s, which is also how the tests find them. Nothing changes visually.
 - **Each test was seen failing.** For behavior that already worked, each group of tests was run against a temporarily broken app (for example, the movement list sorted backwards, or a server that skips deleting the set) to prove the tests catch the bug. Pull request #13 lists every one.
+
+### Code organized by domain, and cache invalidation declared on each mutation
+
+Before, each page decided on its own what to refresh after a change: every `onSuccess` called `invalidateQueries` with a hand-typed key, and `movementsQueryOptions` was copied into two route folders. The upcoming features make one change affect several screens (completing a workout changes the history and the progression charts), so that rule now lives in one place (ADR 0010).
+
+- **One folder per concept.** `src/lib/auth`, `movements`, `workouts` and `progression` hold the server functions (`<domain>.functions.ts`) and the TanStack Query side (`queries.ts`), whichever each one needs today: `auth/` has no queries, and `progression/` only has its key root until the charts exist. The route `-queries/` folders are gone. Code that must never reach the browser keeps the `.server.ts` suffix and is used only inside server-function handlers: the session cookie signing moved to `src/lib/auth/session.server.ts`, and a production build was checked to leave `COOKIE_SECRET` out of the client bundle.
+- **Keys form a tree.** `["workouts", "current"]` and `["workouts", "history"]` share the `["workouts"]` root, so a mutation can refresh both with one prefix.
+- **Each mutation says what it makes stale.** For example, `completeWorkoutMutationOptions` declares `meta: { invalidates: [workoutKeys.all, progressionKeys.all] }`. One `MutationCache` `onSuccess` in `src/router.tsx` reads that list. Pages only keep their own form resets, such as clearing the reps field.
+- **A mutation stays pending until the screen shows the new data.** The global `onSuccess` returns the invalidation promise, as the TanStack Start guide's example does. Before, "Adding..." turned back into "Add", and the reps field was cleared, while the new set was still missing for one round trip. Now the label, the cleared field and the new row change together. Only the queries on screen refetch, so invalidating the history from the workout page costs nothing, and a failed refetch never turns a saved set into an error. The reasoning and sources are in `docs/research/mutation-invalidation-and-auth-flows.md`.
+- **Sign-in, sign-up and logout stay plain server-function calls.** The signed-in user lives in the router context, not in the query cache, so a mutation would have nothing to invalidate. The official Start auth examples call the function directly, too. Logout stays a full page load, which also throws away the previous user's cached data.
+
+Completing a workout now also invalidates the history. Since queries refetch whenever a page mounts, this changes nothing you can see today. It matters once some data is cached for longer.

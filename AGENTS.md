@@ -29,9 +29,9 @@ Use **Bun** for everything.
   - `index.ts`: the deep module, server only, wrapped in `createServerOnlyFn`
   - `<domain>.functions.ts`: the `createServerFn` adapters. Protected ones use `authMiddleware`, which puts `context.user` on the request.
   - `queries.ts`: the key factory, `queryOptions`, and `mutationOptions` with `meta.invalidates`
-- **Server state**: TanStack Query. Route loaders call `queryClient.ensureQueryData(...)` and components read the same data with `useSuspenseQuery`.
-- **Legacy locations**: until the query refactor lands, some existing code still sits in route `-queries/` folders and in `src/lib/*.server.ts` (including `authMiddleware` in `src/lib/auth.server.ts`). Write new code in the domain folders.
-- **Auth**: an HMAC-signed session cookie holding the user ID, set in `src/lib/auth.server.ts`. Signed-in routes live under `src/routes/__index/_layout*`, and the layout redirects to `/sign-in` when there's no user.
+  - `*.server.ts`: code that must never reach the browser, used only inside server-function handlers (for example `auth/session.server.ts`)
+- **Server state**: TanStack Query. Route loaders call `queryClient.ensureQueryData(...)` and components read the same data with `useSuspenseQuery`. Pages never call `invalidateQueries`: each mutation lists the key prefixes it makes stale in `meta.invalidates`, and the `MutationCache` `onSuccess` in `src/router.tsx` invalidates them and keeps the mutation pending until the queries on screen have refetched.
+- **Auth**: an HMAC-signed session cookie holding the user ID, set in `src/lib/auth/session.server.ts`. Signed-in routes live under `src/routes/__index/_layout*`, and the layout redirects to `/sign-in` when there's no user.
 - **Database**: PostgreSQL with Prisma 7 through the `@prisma/adapter-pg` driver adapter. The schema is `prisma/schema.prisma`, and the client is generated into `prisma/generated/` (gitignored). Get a client with `getServerSidePrismaClient()` from `src/lib/db.server.ts`.
 - **Styling**: Tailwind CSS v4. The brand color is `--color-primary` in `src/styles.css`. Small hand-rolled UI primitives live in `src/components/ui/`.
 - **New screen or substantial UI rework**: run `/prototype` to validate layout and flow, then `/impeccable` for the final design. Keep the identity the existing screens already set: slate neutrals, white cards, `--color-primary` as the accent, `lucide-react` icons, and the primitives in `src/components/ui/`.
