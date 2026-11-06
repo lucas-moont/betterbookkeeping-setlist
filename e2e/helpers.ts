@@ -58,6 +58,11 @@ export async function logCompletedWorkout(page: Page, set: NewSet) {
   await completeWorkout(page);
 }
 
+/** Signs up a brand-new user through the UI, so the test owns all of its data (ADR 0008). */
+export async function signUpAsNewUser(page: Page) {
+  await createAccount(page, `e2e-${randomUUID()}@example.com`, "correct-horse-battery");
+}
+
 /** Signs up through the UI and waits until the signed-in layout shows. */
 export async function createAccount(page: Page, email: string, password: string) {
   await openPage(page, "/create-account");
