@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "./scripts/dev.sh up",
-    "dev:down": "./scripts/dev.sh down",
+    "dev": "bun scripts/dev.ts up",
+    "dev:down": "bun scripts/dev.ts down",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
     "db:prepare": "prisma migrate deploy && bun scripts/hash-legacy-passwords.ts",
