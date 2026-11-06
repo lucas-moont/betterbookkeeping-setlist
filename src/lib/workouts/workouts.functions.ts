@@ -36,7 +36,7 @@ export const addSetServerFn = createServerFn({ method: "POST" })
 
 export const deleteSetServerFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .inputValidator(z.object({ setId: z.string() }))
+  .inputValidator(z.object({ setId: z.uuid() }))
   .handler(async ({ context, data }: { context: { user: { id: string } }; data: { setId: string } }) => {
     return toServerResult(await workouts.removeSet(await getServerSidePrismaClient(), context.user.id, data.setId));
   });
@@ -49,7 +49,7 @@ export const getWorkoutHistoryServerFn = createServerFn()
 
 export const deleteWorkoutsServerFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .inputValidator(z.object({ workoutIds: z.array(z.string()) }))
+  .inputValidator(z.object({ workoutIds: z.array(z.uuid()) }))
   .handler(async ({ context, data }: { context: { user: { id: string } }; data: { workoutIds: string[] } }) => {
     return toServerResult(
       await workouts.deleteWorkouts(await getServerSidePrismaClient(), context.user.id, data.workoutIds),
