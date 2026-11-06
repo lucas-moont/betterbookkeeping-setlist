@@ -26,10 +26,13 @@ Use **Bun** for everything.
 - **Framework**: TanStack Start (React SSR) with Vite and Nitro
 - **Routing**: TanStack Router, file-based, in `src/routes/`. `src/routeTree.gen.ts` is generated and gitignored.
 - **Domain folders (ADR 0010)**: each domain concept lives in `src/lib/<domain>/`:
-  - `index.ts`: the deep module, server only, wrapped in `createServerOnlyFn`
+  - `index.ts`: the deep module, server only, wrapped in `createServerOnlyFn`. Every operation takes `(db, userId, ...)` and never opens its own client. Expected failures come back as `{ ok: false, reason }`, with the codes and messages in `src/lib/error-codes.ts`. Database errors still throw.
   - `<domain>.functions.ts`: the `createServerFn` adapters. Protected ones use `authMiddleware`, which puts `context.user` on the request.
   - `queries.ts`: the key factory, `queryOptions`, and `mutationOptions` with `meta.invalidates`
   - `*.server.ts`: code that must never reach the browser, used only inside server-function handlers (for example `auth/session.server.ts`)
+  - `<domain>.test.ts`: integration tests through `index.ts` against the real test database. Create rows with `src/test/factories.ts`, and check outcomes through the module's own reads, not by querying the database.
+- **Server function results**: adapters return `toServerResult(result)` from `src/lib/error-codes.ts`, which gives `{ success: true, ...data }` or `{ success: false, code, error }`. Add new codes there, never inline strings.
+- **Load**: `load()` in `src/lib/weight.ts` is the only Load formula (ADR 0002, ADR 0003). Import it; don't recompute `weight + addedWeight`.
 - **Server state**: TanStack Query. Route loaders call `queryClient.ensureQueryData(...)` and components read the same data with `useSuspenseQuery`. Pages never call `invalidateQueries`: each mutation lists the key prefixes it makes stale in `meta.invalidates`, and the `MutationCache` `onSuccess` in `src/router.tsx` invalidates them and keeps the mutation pending until the queries on screen have refetched.
 - **Auth**: an HMAC-signed session cookie holding the user ID, set in `src/lib/auth/session.server.ts`. Signed-in routes live under `src/routes/__index/_layout*`, and the layout redirects to `/sign-in` when there's no user.
 - **Database**: PostgreSQL with Prisma 7 through the `@prisma/adapter-pg` driver adapter. The schema is `prisma/schema.prisma`, and the client is generated into `prisma/generated/` (gitignored). Get a client with `getServerSidePrismaClient()` from `src/lib/db.server.ts`.
