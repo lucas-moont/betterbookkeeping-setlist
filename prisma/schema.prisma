@@ -15,12 +15,21 @@ model User {
   updatedAt DateTime  @updatedAt
   password  String
   workouts  Workout[]
+  movements Movement[]
 }
 
+// Every Movement belongs to one user (ADR 0001). nameKey is the name trimmed and lower-cased, so
+// names are unique per user ignoring case. The code sets it on every write to name.
 model Movement {
-  id   String @id @default(uuid())
-  name String
-  sets Set[]
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  name      String
+  nameKey   String
+  createdAt DateTime @default(now())
+  sets      Set[]
+
+  @@unique([userId, nameKey])
 }
 
 model Workout {

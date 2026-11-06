@@ -1,5 +1,7 @@
 import { hashPassword } from "@/lib/auth/password";
 import type { DbClient } from "@/lib/db.server";
+import * as movements from "@/lib/movements";
+import { expectOk } from "./expect-ok";
 
 // Tests share one database with other workers (ADR 0008), so every row they create gets a unique
 // name and each test only looks at the rows it created.
@@ -22,10 +24,10 @@ export async function createUser(db: DbClient, { password }: { password?: string
   });
 }
 
-/** Creates a Movement with a unique name. Every user sees every movement until ADR 0001 lands. */
-export function createMovement(db: DbClient, name = "Bench Press") {
-  return db.movement.create({
-    data: { name: `${name} ${crypto.randomUUID().slice(0, 8)}` },
-    select: { id: true, name: true },
-  });
+/**
+ * Creates a Movement in the user's library (ADR 0001), through the movements module so its nameKey
+ * is right. The suffix lets a test create several without picking names.
+ */
+export async function createMovement(db: DbClient, userId: string, name = "Bench Press") {
+  return expectOk(await movements.create(db, userId, `${name} ${crypto.randomUUID().slice(0, 8)}`)).movement;
 }

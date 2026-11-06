@@ -4,6 +4,8 @@
 export const errorMessages = {
   "no-current-workout": "There is no Current Workout",
   "set-not-found": "Set not found",
+  "movement-name-taken": "You already have a movement with this name",
+  "movement-not-found": "Movement not found",
 } as const;
 
 export type ErrorCode = keyof typeof errorMessages;

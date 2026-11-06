@@ -17,5 +17,15 @@ describe("toServerResult", () => {
       code: "no-current-workout",
       error: "There is no Current Workout",
     });
+    expect(toServerResult({ ok: false, reason: "movement-name-taken" })).toEqual({
+      success: false,
+      code: "movement-name-taken",
+      error: "You already have a movement with this name",
+    });
+    expect(toServerResult({ ok: false, reason: "movement-not-found" })).toEqual({
+      success: false,
+      code: "movement-not-found",
+      error: "Movement not found",
+    });
   });
 });
