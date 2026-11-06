@@ -81,6 +81,8 @@ bun run test
 
 To run the suite against another server, such as the production build, set `PLAYWRIGHT_BASE_URL` in your shell (for example `PLAYWRIGHT_BASE_URL=http://localhost:3100 bun run test`).
 
+Every test signs up its own brand-new user through `e2e/fixtures.ts`, so the suite runs in parallel and needs no cleanup. The movements the tests create stay in the database, each with a random suffix in its name. `bun run db:reset` clears them.
+
 ### Running the integration tests
 
 ```bash
@@ -164,3 +166,20 @@ Code that looks important but that nothing calls slows down anyone reading the p
 - Deleting several workouts from history already works with checkboxes and a button, so the e2e cases in `e2e/workouts.spec.ts` don't need a menu either.
 - The empty-workout prompt researched in `docs/research/empty-workouts.md` needs a dialog, not a menu.
 - No feature asks for fuzzy matching of movement names. If a "did you mean…?" prompt is ever needed, `levenshteinDistance` is still in the git history.
+
+### End-to-end tests
+
+The skipped cases in `e2e/movements.spec.ts`, `e2e/sets.spec.ts` and `e2e/workouts.spec.ts` now run, apart from two that wait for data the app doesn't store yet:
+
+- "should show sets in the order they were added" needs a creation time on each set. Today sets have no defined order.
+- "should show the workout date after starting" needs the workout's start time. Today the card shows today's date, so the test would pass without proving anything.
+
+Both stay skipped and turn on once those timestamps exist (ADR 0007).
+
+How the suite is built, and why:
+
+- **One user per test.** `e2e/fixtures.ts` signs every test in as a new user, the same rule as the integration tests (ADR 0008). Tests own their data, so they can run in parallel.
+- **Setup through the UI.** `e2e/helpers.ts` creates movements, starts and completes workouts, and adds sets by clicking through the app, the way a user would.
+- **Safe with a shared movement library.** Every user still sees every movement (ADR 0001 changes that), and parallel tests keep adding to the list. Each test gives its movements a random suffix and checks that the list contains them, never that it equals them.
+- **Accessible names.** The movement name input, the set form fields, the icon-only "Remove set" button and the history checkboxes had no accessible name, so screen readers announced them as unnamed controls. They now have `aria-label`s, which is also how the tests find them. Nothing changes visually.
+- **Each test was seen failing.** For behavior that already worked, each group of tests was run against a temporarily broken app (for example, the movement list sorted backwards, or a server that skips deleting the set) to prove the tests catch the bug. Pull request #13 lists every one.
