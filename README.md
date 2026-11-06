@@ -240,4 +240,26 @@ Each workout server function used to do everything itself: validate the input, r
 
 **Tests.** Unit: the name key and schema, `unwrap`, `isFormError` and the toast message. Integration: user A doesn't see B's movements, case-duplicates and a double submit are refused, `addSet` refuses another user's movement. E2E: the exact list, the form error, a second user who sees none of the first user's movements, and a create replayed without the session cookie. Each new guard was broken on purpose once to watch its test fail.
 
-**Kept as it was, on purpose.** Logging out still doesn't revoke the signed session cookie, so a copied cookie keeps working; sessions stored in the database fix that (ADR 0009). Reps and weight are still any number of at least 1 and 0; they get proper bounds when weights become decimal pounds (ADR 0002).
+**Kept as it was, on purpose.** Logging out still doesn't revoke the signed session cookie, so a copied cookie keeps working; sessions stored in the database fix that (ADR 0009). Reps and weight were still any number of at least 1 and 0; they got bounds with decimal pounds (see below).
+
+### Weights in decimal pounds
+
+**The problem.** `Set.weight` was an integer, so a 135.5 lb set couldn't be logged. The form also parsed the field with `parseInt`, which cut any decimals off without a word. Assignments 1 and 2 need decimals too, because a body weight like 172.4 lb will fill in the weight of a body-weight set, so both have to share one type and one unit (ADR 0002).
+
+**What changed for the user.**
+
+- The weight field takes up to two decimals, from 0 to 9999.99 lb, and the set shows the weight as logged ("5 reps × 135.5 lbs"), in the Current Workout and in the history.
+- A weight with three decimals, such as 1.005, is refused by the browser instead of being rounded.
+- Reps must be a whole number from 1 to 999. Before, 1.5 passed validation and then failed in Postgres.
+
+**How.**
+
+- **Storage.** `Set.weight` is a Postgres `numeric(6,2)` (Prisma `Decimal @db.Decimal(6, 2)`). The migration is a single `ALTER COLUMN ... SET DATA TYPE DECIMAL(6,2)`, which keeps every value. On the local database, the 751 sets had the same count, sum (120786), maximum (315) and per-set fingerprint before and after.
+- **Why not integer hundredths of a pound, like money in cents?** It is just as exact: every value from 0.00 to 9999.99 survives the round trip either way. But every write would multiply by 100, every read and raw SQL expression would divide by 100, and every future weight column would repeat that. Floats were ruled out because no CHECK can enforce two decimals on them. The comparison and its sources are in `docs/research/weights-decimal-pounds.md`.
+- **Numbers, not `Decimal`, leave the module.** Prisma returns `Decimal` objects, and TanStack Start can't serialize them, so a leak would fail the server function. `toSet()` in `src/lib/workouts/index.ts` turns the weight into a `number` before `load()` runs. Two decimals always fit a JS number exactly, so nothing is lost.
+- **Validation refuses instead of rounding.** The column would round 1.005 to 1.01 and overflow above 9999.99, so validation is the gate. `weightSchema` in `src/lib/weight.ts`, next to `load()`, is the one rule for every weight field: at most 9999.99, and a value that rounding to two decimals would change is refused. The body-weight features reuse it, each with its own minimum. zod's `multipleOf(0.01)` was not enough on its own: it has no upper bound and lets `1e-7` through. The form takes `maxWeight` and `weightStep` from the same file, and sends `Number(...)` for both fields, so the schema sees exactly what was typed.
+- **For the Progression Charts.** Raw SQL gets `Decimal` back for `numeric` and `BigInt` for `sum(integer)`, so the per-Training-Day query will cast its results to `::float8` and `::int` (ADR 0002, ADR 0004).
+
+**Tests.** Unit: `weightSchema` accepts 0, 0.07, 1.15, 135.55, ±9999.99 and -20.05, and refuses 1.005, `1e-7`, `0.1 + 0.2` and ±10000. The Set draft also refuses a negative Weight, and accepts 1 to 999 Reps but not 0, 1.5 or 1000. Integration: 135.55, 0.07 and 9999.99 come back from `addSet` and `get` as the same numbers. E2E: a 135.5 lb set survives a reload and shows in the history, and 1.005 is refused. Removing the conversion or the two-decimal check turned their tests red.
+
+**Kept as it was, on purpose.** The screens still say "lbs" and print the number as it comes. One place that formats weights (as "135.5 lb") comes with the shared date and weight formatting. The history's per-movement maximum still reads `weight`. It is the same number as Load until body-weight sets exist, and switches to Load with them.
