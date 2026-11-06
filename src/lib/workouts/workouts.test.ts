@@ -207,6 +207,43 @@ describe("history", () => {
   });
 });
 
+describe("deleteWorkouts", () => {
+  test("deletes every workout in the list, Sets included", async () => {
+    const user = await createUser(db);
+    const movement = await createMovement(db);
+    await workouts.start(db, user.id);
+    await workouts.addSet(db, user.id, { movementId: movement.id, reps: 5, weight: 225 });
+    await workouts.complete(db, user.id);
+    const [withSets] = await workouts.history(db, user.id);
+    const empty = await completeEmptyWorkout(user.id);
+
+    expect(await workouts.deleteWorkouts(db, user.id, [withSets!.id, empty])).toEqual({ ok: true });
+
+    expect(await workouts.history(db, user.id)).toEqual([]);
+  });
+
+  test("keeps the workouts that aren't in the list", async () => {
+    const user = await createUser(db);
+    const first = await completeEmptyWorkout(user.id);
+    const kept = await completeEmptyWorkout(user.id);
+    const last = await completeEmptyWorkout(user.id);
+
+    await workouts.deleteWorkouts(db, user.id, [first, last]);
+
+    expect((await workouts.history(db, user.id)).map((workout) => workout.id)).toEqual([kept]);
+  });
+
+  test("never deletes another user's workouts", async () => {
+    const user = await createUser(db);
+    const owner = await createUser(db);
+    const othersWorkout = await completeEmptyWorkout(owner.id);
+
+    await workouts.deleteWorkouts(db, user.id, [othersWorkout]);
+
+    expect((await workouts.history(db, owner.id)).map((workout) => workout.id)).toEqual([othersWorkout]);
+  });
+});
+
 async function completeEmptyWorkout(userId: string) {
   const { workout } = expectOk(await workouts.start(db, userId));
   expectOk(await workouts.complete(db, userId));

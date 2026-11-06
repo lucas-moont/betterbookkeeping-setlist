@@ -51,13 +51,7 @@ export const deleteWorkoutsServerFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .inputValidator(z.object({ workoutIds: z.array(z.string()) }))
   .handler(async ({ context, data }: { context: { user: { id: string } }; data: { workoutIds: string[] } }) => {
-    const prisma = await getServerSidePrismaClient();
-    // Delete sets first, then workouts (only for this user's workouts)
-    await prisma.set.deleteMany({
-      where: { workout: { id: { in: data.workoutIds }, userId: context.user.id } },
-    });
-    await prisma.workout.deleteMany({
-      where: { id: { in: data.workoutIds }, userId: context.user.id },
-    });
-    return { success: true };
+    return toServerResult(
+      await workouts.deleteWorkouts(await getServerSidePrismaClient(), context.user.id, data.workoutIds),
+    );
   });
