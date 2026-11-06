@@ -1,8 +1,9 @@
-import { HeadContent, Scripts, createRootRouteWithContext, useRouter } from "@tanstack/react-router";
+import { HeadContent, Outlet, Scripts, createRootRouteWithContext, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import styles from "../styles.css?url";
 import { type QueryClient } from "@tanstack/react-query";
 import { getUserServerFn } from "@/lib/auth/auth.functions";
+import { readTimeZone, useSyncTimeZoneCookie } from "@/lib/time-zone";
 import { TanStackDevtools } from "@tanstack/react-devtools";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { ReactQueryDevtoolsPanel } from "@tanstack/react-query-devtools";
@@ -113,8 +114,9 @@ ${error.stack || "No stack trace available"}`;
 export const Route = createRootRouteWithContext<MyRouterContext>()({
   beforeLoad: async () => {
     const user = await getUserServerFn();
-    return { user };
+    return { user, timeZone: readTimeZone() };
   },
+  component: RootComponent,
   errorComponent: RootErrorComponent,
   head: () => ({
     meta: [
@@ -152,6 +154,11 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 
   shellComponent: RootDocument,
 });
+
+function RootComponent() {
+  useSyncTimeZoneCookie();
+  return <Outlet />;
+}
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   const config = useClientConfig();

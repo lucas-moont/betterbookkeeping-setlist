@@ -51,7 +51,7 @@ test.describe("Sets", () => {
       await openPage(page, "/current-workout");
 
       await expect(page.getByRole("listitem").filter({ hasText: movement })).toHaveText(
-        `${movement}5 reps × 135.5 lbs`,
+        `${movement}5 reps × 135.5 lb`,
       );
     });
 
@@ -91,7 +91,7 @@ test.describe("Sets", () => {
 
       await addSet(page, { movement, weight: 95, reps: 8 });
 
-      await expect(page.getByRole("listitem").filter({ hasText: movement })).toHaveText(`${movement}8 reps × 95 lbs`);
+      await expect(page.getByRole("listitem").filter({ hasText: movement })).toHaveText(`${movement}8 reps × 95 lb`);
     });
 
     // Skipped until LUC-134 adds Set.createdAt: sets have no defined order yet.
@@ -125,12 +125,12 @@ test.describe("Sets", () => {
       await addSet(page, { movement, weight: 185, reps: 5 });
       const sets = page.getByRole("listitem").filter({ hasText: movement });
 
-      await sets.filter({ hasText: "135 lbs" }).getByRole("button", { name: "Remove set" }).click();
+      await sets.filter({ hasText: "135 lb" }).getByRole("button", { name: "Remove set" }).click();
 
-      await expect(sets).toHaveText([`${movement}5 reps × 185 lbs`]);
+      await expect(sets).toHaveText([`${movement}5 reps × 185 lb`]);
       // The deletion was saved, not just hidden.
       await openPage(page, "/current-workout");
-      await expect(sets).toHaveText([`${movement}5 reps × 185 lbs`]);
+      await expect(sets).toHaveText([`${movement}5 reps × 185 lb`]);
     });
   });
 });

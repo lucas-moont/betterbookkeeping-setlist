@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Trash2 } from "lucide-react";
 import { deleteWorkoutsMutationOptions, workoutHistoryQueryOptions } from "@/lib/workouts/queries";
 import { useSuspenseQuery, useMutation } from "@tanstack/react-query";
+import { formatDate, formatWeight } from "@/lib/format";
+import { useTimeZone } from "@/lib/time-zone";
 
 export const Route = createFileRoute("/__index/_layout/workout-history/")({
   loader: async ({ context }) => {
@@ -15,6 +17,7 @@ export const Route = createFileRoute("/__index/_layout/workout-history/")({
 
 function WorkoutHistoryPage() {
   const { data: workouts } = useSuspenseQuery(workoutHistoryQueryOptions());
+  const timeZone = useTimeZone();
   const [selectedWorkouts, setSelectedWorkouts] = useState<Set<string>>(new Set());
 
   const deleteWorkoutsMutation = useMutation({
@@ -118,11 +121,7 @@ function WorkoutHistoryPage() {
                         </td>
                         <td className="py-3 px-4 text-slate-500">
                           {workout.completedAt
-                            ? new Date(workout.completedAt).toLocaleDateString("en-US", {
-                                month: "short",
-                                day: "numeric",
-                                year: "numeric",
-                              })
+                            ? formatDate(workout.completedAt, timeZone)
                             : "-"}
                         </td>
                         <td className="py-3 px-4 text-right text-slate-600">{workout.sets.length}</td>
@@ -142,7 +141,7 @@ function WorkoutHistoryPage() {
                           const numSets = movementSets.length;
                           return (
                             <td key={movementId} className="py-3 px-4 text-right text-slate-600">
-                              {maxWeight} lbs / {avgReps} reps / {numSets} sets
+                              {formatWeight(maxWeight)} / {avgReps} reps / {numSets} sets
                             </td>
                           );
                         })}

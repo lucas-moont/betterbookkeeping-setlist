@@ -264,4 +264,24 @@ Each workout server function used to do everything itself: validate the input, r
 
 **Tests.** Unit: `weightSchema` accepts 0, 0.07, 1.15, 135.55, ±9999.99 and -20.05, and refuses 1.005, `1e-7`, `0.1 + 0.2` and ±10000. The Set draft also refuses a negative Weight, and accepts 1 to 999 Reps but not 0, 1.5 or 1000. Integration: 135.55, 0.07 and 9999.99 come back from `addSet` and `get` as the same numbers. E2E: a 135.5 lb set survives a reload and shows in the history, and 1.005 is refused. Removing the conversion or the two-decimal check turned their tests red.
 
-**Kept as it was, on purpose.** The screens still say "lbs" and print the number as it comes. One place that formats weights (as "135.5 lb") comes with the shared date and weight formatting. The history's per-movement maximum still reads `weight`. It is the same number as Load until body-weight sets exist, and switches to Load with them.
+**Kept as it was, on purpose.** The screens still say "lbs" and print the number as it comes. One place that formats weights (as "135.5 lb") came next, with the shared date formatting (see below). The history's per-movement maximum still reads `weight`. It is the same number as Load until body-weight sets exist, and switches to Load with them.
+
+### Dates and weights formatted in one place, in the browser's time zone
+
+**The problem.** Each screen formatted its own dates with `toLocaleDateString("en-US", ...)` and wrote "lbs" by hand. Worse, the server renders the page in the container's zone, UTC. A workout completed at 22:00 in São Paulo (01:00 UTC the next day) showed up as the next day in the first paint, and the browser then disagreed with the server while hydrating. Assignments 1 and 3 make this matter more: a body weight logged today, and a Training Day on the progression chart, are days in the user's zone, not the server's (ADR 0004).
+
+**What changed for the user.**
+
+- Dates are the day they were where the user is: the Current Workout title and the history's dates follow the browser's time zone, on the server render too.
+- Weights read "135.5 lb", with thousands grouped ("9,999.99 lb"), as `CONTEXT.md` spells the unit.
+
+**How.**
+
+- **One formatter.** `src/lib/format.ts` holds the locale and turns values into text: `formatWeight`, `formatDate` (an instant, such as `completedAt`, in a given zone), and for the coming body weight and progression screens, `todayIsoDate` and `formatCalendarDate` for "YYYY-MM-DD" days. A calendar day is never read as UTC midnight, which São Paulo would show as the day before. No screen calls `toLocaleDateString` or writes the unit.
+- **The zone travels in a cookie.** The browser stores `Intl.DateTimeFormat().resolvedOptions().timeZone` in a `tz` cookie. The root route reads that same cookie on the server render and in the browser (`src/lib/time-zone.ts`), and screens get it from `useTimeZone()`, so both sides format with the same zone and agree.
+- **First visit.** With no cookie yet, the server renders in UTC. The browser then writes the cookie and invalidates the router, so the same page re-renders in the user's zone right away.
+- **The cookie is untrusted input.** A bad value can't break a page: the zone is checked by trying it in `Intl` (not against `Intl.supportedValuesOf`, which leaves out "UTC" and "Asia/Kolkata"), its length is capped, offsets such as "+05:30" are refused (Postgres reads them with the sign flipped, which would move Training Days), and anything invalid falls back to UTC.
+
+**Tests.** Unit: 01:00 UTC is Nov 6 in São Paulo and Nov 7 in UTC; today in São Paulo at 22:00 is "2026-11-06"; "2026-11-06" stays Nov 6 under São Paulo and Kiritimati process zones; `formatWeight` rounds `150.1 + 2.2` to "152.3 lb"; bad cookies such as "Mars/Olympus" or broken percent-encoding fall back to UTC. E2E, in two browsers set to Pacific/Kiritimati (UTC+14) and Etc/GMT+12 (UTC-12), which are never on the same date: the Current Workout title and the history date match the browser's day, the server's HTML has the same text, and React reports no hydration error. A first visit without the cookie renders UTC and then corrects itself. Formatting the title with the server's zone, ignoring the cookie on the server, or dropping the re-render each turned a test red.
+
+**Kept as it was, on purpose.** The interface stays in English, with the locale written once in `src/lib/format.ts`; translating it (for example with `use-intl`) is out of scope. The history's per-movement maximum still reads `weight`; it switches to Load with body-weight sets.

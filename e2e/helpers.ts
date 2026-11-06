@@ -9,11 +9,12 @@ export function uniqueToken() {
 /** A set as the Current Workout form takes it. */
 export type NewSet = { movement: string; weight: number; reps: number };
 
-/** Loads a page from the server and waits for hydration. */
+/** Loads a page from the server and waits for hydration. Returns the server's response. */
 export async function openPage(page: Page, path: string) {
-  await page.goto(path);
+  const response = await page.goto(path);
   // Filling before hydration loses the input: React resets controlled fields.
   await page.waitForLoadState("networkidle");
+  return response;
 }
 
 /** Creates a movement from the Movements page and waits until it is listed. */
@@ -41,7 +42,7 @@ export async function addSet(page: Page, set: NewSet) {
     page
       .getByRole("listitem")
       .filter({ hasText: set.movement })
-      .filter({ hasText: `${set.reps} reps × ${set.weight} lbs` }),
+      .filter({ hasText: `${set.reps} reps × ${set.weight} lb` }),
   ).toBeVisible();
 }
 

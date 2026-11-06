@@ -14,6 +14,8 @@ import {
   startWorkoutMutationOptions,
 } from "@/lib/workouts/queries";
 import { movementsQueryOptions } from "@/lib/movements/queries";
+import { formatCalendarDate, formatWeight, todayIsoDate } from "@/lib/format";
+import { useTimeZone } from "@/lib/time-zone";
 import { maxWeight, weightStep } from "@/lib/weight";
 import { maxReps } from "@/lib/workouts/set-draft";
 
@@ -30,6 +32,7 @@ export const Route = createFileRoute("/__index/_layout/current-workout/")({
 function CurrentWorkoutPage() {
   const { data: workout } = useSuspenseQuery(currentWorkoutQueryOptions());
   const { data: movements } = useSuspenseQuery(movementsQueryOptions());
+  const timeZone = useTimeZone();
   const [selectedMovement, setSelectedMovement] = useState("");
   const [reps, setReps] = useState("");
   const [weight, setWeight] = useState("");
@@ -87,12 +90,7 @@ function CurrentWorkoutPage() {
       <Card>
         <CardHeader>
           <CardTitle>
-            {new Date().toLocaleDateString("en-US", {
-              weekday: "long",
-              year: "numeric",
-              month: "long",
-              day: "numeric",
-            })}
+            {formatCalendarDate(todayIsoDate(timeZone), "long")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -143,7 +141,7 @@ function CurrentWorkoutPage() {
                   <div>
                     <span className="font-medium">{set.movement.name}</span>
                     <span className="text-slate-500 ml-2">
-                      {set.reps} reps × {set.weight} lbs
+                      {set.reps} reps × {formatWeight(set.weight)}
                     </span>
                   </div>
                   <Button
