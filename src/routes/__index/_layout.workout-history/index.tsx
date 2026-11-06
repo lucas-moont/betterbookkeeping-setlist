@@ -2,10 +2,9 @@ import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { deleteWorkoutsServerFn } from "@/lib/workouts.server";
 import { Trash2 } from "lucide-react";
-import { workoutHistoryQueryOptions } from "./-queries/workout-history";
-import { useSuspenseQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { deleteWorkoutsMutationOptions, workoutHistoryQueryOptions } from "@/lib/workouts/queries";
+import { useSuspenseQuery, useMutation } from "@tanstack/react-query";
 
 export const Route = createFileRoute("/__index/_layout/workout-history/")({
   loader: async ({ context }) => {
@@ -15,14 +14,12 @@ export const Route = createFileRoute("/__index/_layout/workout-history/")({
 });
 
 function WorkoutHistoryPage() {
-  const queryClient = useQueryClient();
   const { data: workouts } = useSuspenseQuery(workoutHistoryQueryOptions());
   const [selectedWorkouts, setSelectedWorkouts] = useState<Set<string>>(new Set());
 
   const deleteWorkoutsMutation = useMutation({
-    mutationFn: (workoutIds: string[]) => deleteWorkoutsServerFn({ data: { workoutIds } }),
+    ...deleteWorkoutsMutationOptions(),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: workoutHistoryQueryOptions().queryKey });
       setSelectedWorkouts(new Set());
     },
   });
