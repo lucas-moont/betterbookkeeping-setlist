@@ -1,4 +1,5 @@
 import { createServerOnlyFn } from "@tanstack/react-start";
+import type { Prisma } from "../../../prisma/generated/client/client";
 import type { DbClient } from "@/lib/db.server";
 import type { Result } from "@/lib/error-codes";
 import { ensureOwned } from "@/lib/movements";
@@ -28,12 +29,13 @@ const workoutSelect = {
   sets: { select: { id: true, reps: true, weight: true, movement: { select: { id: true, name: true } } } },
 } as const;
 
-type SetRow = Omit<WorkoutSet, "load">;
+type SetRow = Prisma.SetGetPayload<{ select: typeof workoutSelect.sets.select }>;
 
-// The one place a stored Set becomes what callers see. Prisma Decimal turns into number here once
-// weights become decimal (ADR 0002).
+// The one place a stored Set becomes what callers see. Weight comes back as a Prisma Decimal, which
+// a server function can't serialize, so it becomes a number here (ADR 0002).
 function toSet(row: SetRow): WorkoutSet {
-  return { id: row.id, reps: row.reps, weight: row.weight, load: load(row), movement: row.movement };
+  const weight = row.weight.toNumber();
+  return { id: row.id, reps: row.reps, weight, load: load({ weight }), movement: row.movement };
 }
 
 /** Starts a new Current Workout for the user. */

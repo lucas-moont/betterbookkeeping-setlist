@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { weightSchema } from "@/lib/weight";
 
 /** The most Reps one Set can have. */
 export const maxReps = 999;
@@ -8,7 +9,7 @@ export const maxReps = 999;
 export const setDraftSchema = z.object({
   movementId: z.uuid(),
   reps: z.number().int().min(1).max(maxReps),
-  weight: z.number().min(0),
+  weight: weightSchema.min(0),
 });
 
 export type SetDraft = z.infer<typeof setDraftSchema>;
