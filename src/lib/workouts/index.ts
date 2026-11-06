@@ -75,6 +75,18 @@ export const addSet = createServerOnlyFn(
   },
 );
 
+/**
+ * Removes a Set from the user's Current Workout. A Set of a Completed Workout or of another user
+ * gets the same set-not-found as one that doesn't exist, so the answer never reveals it exists.
+ */
+export const removeSet = createServerOnlyFn(
+  async (db: DbClient, userId: string, setId: string): Promise<Result<object, "set-not-found">> => {
+    // One statement: the ownership check and the delete can't drift apart.
+    const { count } = await db.set.deleteMany({ where: { id: setId, workout: { userId, completedAt: null } } });
+    return count === 0 ? { ok: false, reason: "set-not-found" } : { ok: true };
+  },
+);
+
 /** Completes the user's Current Workout, which moves it into the history. */
 export const complete = createServerOnlyFn(
   async (db: DbClient, userId: string): Promise<Result<object, "no-current-workout">> => {

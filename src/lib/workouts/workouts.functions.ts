@@ -38,16 +38,7 @@ export const deleteSetServerFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .inputValidator(z.object({ setId: z.string() }))
   .handler(async ({ context, data }: { context: { user: { id: string } }; data: { setId: string } }) => {
-    const prisma = await getServerSidePrismaClient();
-    // Verify the set belongs to the user's active workout
-    const set = await prisma.set.findFirst({
-      where: { id: data.setId, workout: { userId: context.user.id, completedAt: null } },
-    });
-    if (!set) {
-      return { success: false, error: "Set not found" };
-    }
-    await prisma.set.delete({ where: { id: data.setId } });
-    return { success: true };
+    return toServerResult(await workouts.removeSet(await getServerSidePrismaClient(), context.user.id, data.setId));
   });
 
 export const getWorkoutHistoryServerFn = createServerFn()

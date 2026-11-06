@@ -89,6 +89,61 @@ describe("addSet", () => {
   });
 });
 
+describe("removeSet", () => {
+  test("removes only the given Set", async () => {
+    const user = await createUser(db);
+    const movement = await createMovement(db);
+    await workouts.start(db, user.id);
+    const { set: kept } = expectOk(
+      await workouts.addSet(db, user.id, { movementId: movement.id, reps: 5, weight: 185 }),
+    );
+    const { set: removed } = expectOk(
+      await workouts.addSet(db, user.id, { movementId: movement.id, reps: 10, weight: 135 }),
+    );
+
+    expect(await workouts.removeSet(db, user.id, removed.id)).toEqual({ ok: true });
+
+    expect((await workouts.get(db, user.id))?.sets).toEqual([kept]);
+  });
+
+  // A Completed Workout's Sets no longer change (CONTEXT.md).
+  test("returns set-not-found for a Set of a Completed Workout, and keeps it", async () => {
+    const user = await createUser(db);
+    const movement = await createMovement(db);
+    await workouts.start(db, user.id);
+    const { set } = expectOk(await workouts.addSet(db, user.id, { movementId: movement.id, reps: 5, weight: 225 }));
+    await workouts.complete(db, user.id);
+
+    expect(await workouts.removeSet(db, user.id, set.id)).toEqual({ ok: false, reason: "set-not-found" });
+
+    expect((await workouts.history(db, user.id))[0]?.sets).toEqual([set]);
+  });
+
+  // Same answer as for a Set that doesn't exist, so nobody learns which ids belong to others.
+  test("returns set-not-found for another user's Set, and keeps it", async () => {
+    const owner = await createUser(db);
+    const otherUser = await createUser(db);
+    const movement = await createMovement(db);
+    await workouts.start(db, owner.id);
+    await workouts.start(db, otherUser.id);
+    const { set } = expectOk(await workouts.addSet(db, owner.id, { movementId: movement.id, reps: 5, weight: 225 }));
+
+    expect(await workouts.removeSet(db, otherUser.id, set.id)).toEqual({ ok: false, reason: "set-not-found" });
+
+    expect((await workouts.get(db, owner.id))?.sets).toEqual([set]);
+  });
+
+  test("removing the same Set twice returns set-not-found the second time", async () => {
+    const user = await createUser(db);
+    const movement = await createMovement(db);
+    await workouts.start(db, user.id);
+    const { set } = expectOk(await workouts.addSet(db, user.id, { movementId: movement.id, reps: 5, weight: 225 }));
+    await workouts.removeSet(db, user.id, set.id);
+
+    expect(await workouts.removeSet(db, user.id, set.id)).toEqual({ ok: false, reason: "set-not-found" });
+  });
+});
+
 describe("complete", () => {
   test("moves the Current Workout, with its Sets, into the history", async () => {
     const user = await createUser(db);
