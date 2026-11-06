@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getServerSidePrismaClient } from "@/lib/db.server";
 import { authMiddleware } from "@/lib/auth/auth.functions";
 import { z } from "zod";
+import { setDraftSchema, type SetDraft } from "./set-draft";
 
 export const createWorkoutServerFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
@@ -51,14 +52,14 @@ export const completeWorkoutServerFn = createServerFn({ method: "POST" })
 
 export const addSetServerFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .inputValidator(z.object({ movementId: z.string(), reps: z.number().min(1), weight: z.number().min(0) }))
+  .inputValidator(setDraftSchema)
   .handler(
     async ({
       context,
       data,
     }: {
       context: { user: { id: string } };
-      data: { movementId: string; reps: number; weight: number };
+      data: SetDraft;
     }) => {
       const prisma = await getServerSidePrismaClient();
       const workout = await prisma.workout.findFirst({
