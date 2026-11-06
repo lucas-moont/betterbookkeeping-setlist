@@ -68,6 +68,8 @@ Open http://localhost:3000 and create an account. Every time the app container s
 
 Stop everything with `bun run dev:down`.
 
+Both commands run `scripts/dev.ts` with Bun, not a shell script, so they work the same on Windows, macOS and Linux.
+
 ### Running the e2e tests
 
 ```bash
