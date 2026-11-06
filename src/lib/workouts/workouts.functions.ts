@@ -24,18 +24,7 @@ export const getCurrentWorkoutServerFn = createServerFn()
 export const completeWorkoutServerFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
-    const prisma = await getServerSidePrismaClient();
-    const workout = await prisma.workout.findFirst({
-      where: { userId: context.user.id, completedAt: null },
-    });
-    if (!workout) {
-      return { success: false, error: "No active workout to complete" };
-    }
-    await prisma.workout.update({
-      where: { id: workout.id },
-      data: { completedAt: new Date() },
-    });
-    return { success: true };
+    return toServerResult(await workouts.complete(await getServerSidePrismaClient(), context.user.id));
   });
 
 export const addSetServerFn = createServerFn({ method: "POST" })
@@ -64,17 +53,7 @@ export const deleteSetServerFn = createServerFn({ method: "POST" })
 export const getWorkoutHistoryServerFn = createServerFn()
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
-    const prisma = await getServerSidePrismaClient();
-    const workouts = await prisma.workout.findMany({
-      where: { userId: context.user.id, completedAt: { not: null } },
-      orderBy: { completedAt: "desc" },
-      include: {
-        sets: {
-          include: { movement: true },
-        },
-      },
-    });
-    return workouts;
+    return workouts.history(await getServerSidePrismaClient(), context.user.id);
   });
 
 export const deleteWorkoutsServerFn = createServerFn({ method: "POST" })

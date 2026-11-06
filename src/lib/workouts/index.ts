@@ -18,6 +18,8 @@ export type WorkoutSet = {
 
 export type CurrentWorkout = { id: string; completedAt: null; sets: WorkoutSet[] };
 
+export type CompletedWorkout = { id: string; completedAt: Date; sets: WorkoutSet[] };
+
 // Only the columns the screens use, so user and foreign-key ids stay on the server.
 const workoutSelect = {
   id: true,
@@ -72,3 +74,29 @@ export const addSet = createServerOnlyFn(
     return { ok: true, set: toSet(set) };
   },
 );
+
+/** Completes the user's Current Workout, which moves it into the history. */
+export const complete = createServerOnlyFn(
+  async (db: DbClient, userId: string): Promise<Result<object, "no-current-workout">> => {
+    const workoutId = await findCurrentWorkoutId(db, userId);
+    if (!workoutId) return { ok: false, reason: "no-current-workout" };
+
+    await db.workout.update({ where: { id: workoutId }, data: { completedAt: new Date() } });
+    return { ok: true };
+  },
+);
+
+/** The user's Completed Workouts with their Sets, most recently completed first. */
+export const history = createServerOnlyFn(async (db: DbClient, userId: string): Promise<CompletedWorkout[]> => {
+  const completed = await db.workout.findMany({
+    where: { userId, completedAt: { not: null } },
+    orderBy: { completedAt: "desc" },
+    select: workoutSelect,
+  });
+  // The where clause guarantees completedAt is set.
+  return completed.map((workout) => ({
+    id: workout.id,
+    completedAt: workout.completedAt as Date,
+    sets: workout.sets.map(toSet),
+  }));
+});
