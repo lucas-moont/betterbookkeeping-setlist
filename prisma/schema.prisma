@@ -48,4 +48,7 @@ model Set {
   movement   Movement @relation(fields: [movementId], references: [id])
   reps       Int
   weight     Int
+
+  @@index([workoutId])
+  @@index([movementId])
 }
