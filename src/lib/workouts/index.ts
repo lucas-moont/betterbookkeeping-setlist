@@ -43,25 +43,41 @@ export const start = createServerOnlyFn(
   },
 );
 
-// "Which workout is the Current Workout" is answered here and nowhere else. Until the partial
-// index of ADR 0006 allows only one, a user can have several open workouts; ordering by id makes
-// every operation pick the same one that get shows.
-const currentWorkoutQuery = (userId: string) =>
-  ({ where: { userId, completedAt: null }, orderBy: { id: "desc" } }) as const;
+// What makes a workout the user's Current Workout. Every operation filters with this, and nothing
+// else spells the rule out.
+const currentWorkoutWhere = (userId: string) => ({ userId, completedAt: null });
+
+// Until the partial index of ADR 0006 allows only one, a user can have several open workouts. This
+// tie-break makes get, addSet and complete pick the same one; delete it once the index exists.
+const newestFirst = { id: "desc" } as const;
 
 async function findCurrentWorkoutId(db: DbClient, userId: string): Promise<string | null> {
-  const workout = await db.workout.findFirst({ ...currentWorkoutQuery(userId), select: { id: true } });
+  const workout = await db.workout.findFirst({
+    where: currentWorkoutWhere(userId),
+    orderBy: newestFirst,
+    select: { id: true },
+  });
   return workout?.id ?? null;
 }
 
-/** The user's Current Workout with its Sets, or null when there is none. */
+/**
+ * The user's Current Workout with its Sets, or null when there is none. The Sets come in no defined
+ * order until they record when they were logged (ADR 0007).
+ */
 export const get = createServerOnlyFn(async (db: DbClient, userId: string): Promise<CurrentWorkout | null> => {
-  const workout = await db.workout.findFirst({ ...currentWorkoutQuery(userId), select: workoutSelect });
+  const workout = await db.workout.findFirst({
+    where: currentWorkoutWhere(userId),
+    orderBy: newestFirst,
+    select: workoutSelect,
+  });
   if (!workout) return null;
   return { id: workout.id, completedAt: null, sets: workout.sets.map(toSet) };
 });
 
-/** Adds a Set to the user's Current Workout. */
+/**
+ * Adds a Set to the user's Current Workout. The draft must already be valid (setDraftSchema). A
+ * movementId that doesn't exist makes the database reject the insert, and the call throws.
+ */
 export const addSet = createServerOnlyFn(
   async (db: DbClient, userId: string, draft: SetDraft): Promise<Result<{ set: WorkoutSet }, "no-current-workout">> => {
     const workoutId = await findCurrentWorkoutId(db, userId);
@@ -82,7 +98,7 @@ export const addSet = createServerOnlyFn(
 export const removeSet = createServerOnlyFn(
   async (db: DbClient, userId: string, setId: string): Promise<Result<object, "set-not-found">> => {
     // One statement: the ownership check and the delete can't drift apart.
-    const { count } = await db.set.deleteMany({ where: { id: setId, workout: { userId, completedAt: null } } });
+    const { count } = await db.set.deleteMany({ where: { id: setId, workout: currentWorkoutWhere(userId) } });
     return count === 0 ? { ok: false, reason: "set-not-found" } : { ok: true };
   },
 );
