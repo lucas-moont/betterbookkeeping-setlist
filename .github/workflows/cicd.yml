@@ -73,8 +73,9 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: bun install --frozen-lockfile
-      - name: Apply migrations to the e2e database
-        run: bunx prisma migrate deploy
+      - name: Prepare the e2e database
+        # Same start-up step as the Dockerfile, which also proves the native argon2 binary loads under Bun on Linux.
+        run: bun run db:prepare
       - name: Run integration tests
         run: bun run test:integration
       - name: Build

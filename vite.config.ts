@@ -18,6 +18,11 @@ const config = defineConfig({
     }),
     viteReact(),
   ],
+  optimizeDeps: {
+    // Server-only native module. The dep scanner reads raw imports before TanStack Start strips
+    // server code from client modules, and the package's browser entry needs an uninstalled WASM build.
+    exclude: ["@node-rs/argon2"],
+  },
   build: {
     sourcemap: process.env.ENVIRONMENT === "development" || process.env.ENVIRONMENT === "test",
   },

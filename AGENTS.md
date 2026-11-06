@@ -11,10 +11,11 @@ Setlist is a strength training log: users manage a library of movements, log set
 Use **Bun** for everything.
 
 - `bun install`: install dependencies. Also generates the Prisma client (`postinstall`) and installs git hooks (`prepare`).
-- `bun run dev`: start Postgres and the app in Docker with watch mode at http://localhost:3000. Pending migrations are applied on container start.
+- `bun run dev`: start Postgres and the app in Docker with watch mode at http://localhost:3000. The container runs `bun run db:prepare` on start.
 - `bun run dev:down`: stop the Docker services
 - `bun run db:migrate --name <change>`: create and apply a migration against the Docker Postgres (`localhost:55432`)
 - `bun run db:reset`: drop the database and re-apply all migrations
+- `bun run db:prepare`: apply pending migrations, then hash any legacy plaintext passwords. The app container runs it on start.
 - `bun run typecheck`: generate the route tree and run `tsc --noEmit`
 - `bun run build`: production build
 - `bun run test`: Playwright e2e tests against the running app. Run `bunx playwright install chromium` once before the first run.
