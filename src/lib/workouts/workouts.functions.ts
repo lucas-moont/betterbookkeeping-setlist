@@ -2,35 +2,23 @@ import { createServerFn } from "@tanstack/react-start";
 import { getServerSidePrismaClient } from "@/lib/db.server";
 import { authMiddleware } from "@/lib/auth/auth.functions";
 import { z } from "zod";
+import { toServerResult } from "@/lib/error-codes";
+import * as workouts from "./index";
 import { setDraftSchema, type SetDraft } from "./set-draft";
+
+// Thin adapters over the workouts module (ADR 0010): auth, input validation, the module call,
+// and toServerResult for the error codes. The rules live in ./index.ts.
 
 export const createWorkoutServerFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
-    const prisma = await getServerSidePrismaClient();
-    const workout = await prisma.workout.create({
-      data: {
-        userId: context.user.id,
-      },
-    });
-    return { success: true, workout };
+    return toServerResult(await workouts.start(await getServerSidePrismaClient(), context.user.id));
   });
 
 export const getCurrentWorkoutServerFn = createServerFn()
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
-    const prisma = await getServerSidePrismaClient();
-    // Get the most recent workout for the user
-    const workout = await prisma.workout.findFirst({
-      where: { userId: context.user.id, completedAt: null },
-      orderBy: { id: "desc" },
-      include: {
-        sets: {
-          include: { movement: true },
-        },
-      },
-    });
-    return workout;
+    return workouts.get(await getServerSidePrismaClient(), context.user.id);
   });
 
 export const completeWorkoutServerFn = createServerFn({ method: "POST" })

@@ -1,5 +1,5 @@
 import { hashPassword } from "@/lib/auth/password";
-import type { PrismaClient } from "../../prisma/generated/client/client";
+import type { DbClient } from "@/lib/db.server";
 
 // Tests share one database with other workers (ADR 0008), so every row they create gets a unique
 // name and each test only looks at the rows it created.
@@ -12,7 +12,7 @@ const defaultPassword = "factory-password";
 let defaultPasswordHash: Promise<string> | undefined;
 
 /** Creates a brand-new user. A given password is stored as is, so pass a hash unless the test wants legacy plaintext. */
-export async function createUser(db: PrismaClient, { password }: { password?: string } = {}) {
+export async function createUser(db: DbClient, { password }: { password?: string } = {}) {
   return db.user.create({
     data: {
       email: `user-${crypto.randomUUID()}@example.com`,
@@ -23,7 +23,7 @@ export async function createUser(db: PrismaClient, { password }: { password?: st
 }
 
 /** Creates a Movement with a unique name. Every user sees every movement until ADR 0001 lands. */
-export function createMovement(db: PrismaClient, name = "Bench Press") {
+export function createMovement(db: DbClient, name = "Bench Press") {
   return db.movement.create({
     data: { name: `${name} ${crypto.randomUUID().slice(0, 8)}` },
     select: { id: true, name: true },
