@@ -41,6 +41,35 @@ test.describe("Sets", () => {
       await expect(addButton).toBeDisabled();
     });
 
+    test("should add a set with a decimal weight", async ({ page }) => {
+      const movement = `Incline Press ${uniqueToken()}`;
+      await createMovement(page, movement);
+      await startWorkout(page);
+      await addSet(page, { movement, weight: 135.5, reps: 5 });
+
+      // A fresh load reads the weight back from the database.
+      await openPage(page, "/current-workout");
+
+      await expect(page.getByRole("listitem").filter({ hasText: movement })).toHaveText(
+        `${movement}5 reps × 135.5 lbs`,
+      );
+    });
+
+    test("should refuse a weight with more than two decimals", async ({ page }) => {
+      const movement = `Front Squat ${uniqueToken()}`;
+      await createMovement(page, movement);
+      await startWorkout(page);
+      const weightField = page.getByLabel("Weight");
+      await page.getByLabel("Movement", { exact: true }).selectOption({ label: movement });
+      await weightField.fill("1.005");
+      await page.getByLabel("Reps").fill("5");
+
+      await page.getByRole("button", { name: "Add" }).click();
+
+      expect(await weightField.evaluate((field: HTMLInputElement) => field.validity.stepMismatch)).toBe(true);
+      await expect(page.getByText("No sets yet")).toBeVisible();
+    });
+
     test("should display the new set in the workout", async ({ page }) => {
       const movement = `Back Squat ${uniqueToken()}`;
       await createMovement(page, movement);

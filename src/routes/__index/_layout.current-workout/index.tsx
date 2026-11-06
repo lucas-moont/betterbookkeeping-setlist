@@ -14,6 +14,7 @@ import {
   startWorkoutMutationOptions,
 } from "@/lib/workouts/queries";
 import { movementsQueryOptions } from "@/lib/movements/queries";
+import { maxWeight, weightStep } from "@/lib/weight";
 import { maxReps } from "@/lib/workouts/set-draft";
 
 export const Route = createFileRoute("/__index/_layout/current-workout/")({
@@ -52,7 +53,7 @@ function CurrentWorkoutPage() {
     addSetMutation.mutate({
       movementId: selectedMovement,
       reps: Number(reps),
-      weight: parseInt(weight),
+      weight: Number(weight),
     });
   };
 
@@ -115,6 +116,8 @@ function CurrentWorkoutPage() {
               onChange={(e) => setWeight(e.target.value)}
               className="w-24"
               min={0}
+              max={maxWeight}
+              step={weightStep}
             />
             <Input
               type="number"
