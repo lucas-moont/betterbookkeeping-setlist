@@ -1,6 +1,7 @@
 import { createServerOnlyFn } from "@tanstack/react-start";
 import type { DbClient } from "@/lib/db.server";
 import type { Result } from "@/lib/error-codes";
+import { ensureOwned } from "@/lib/movements";
 import { load } from "@/lib/weight";
 import type { SetDraft } from "./set-draft";
 
@@ -76,12 +77,19 @@ export const get = createServerOnlyFn(async (db: DbClient, userId: string): Prom
 
 /**
  * Adds a Set to the user's Current Workout. The draft must already be valid (setDraftSchema). A
- * movementId that doesn't exist makes the database reject the insert, and the call throws.
+ * Movement of another user gets the same movement-not-found as one that doesn't exist (ADR 0001).
  */
 export const addSet = createServerOnlyFn(
-  async (db: DbClient, userId: string, draft: SetDraft): Promise<Result<{ set: WorkoutSet }, "no-current-workout">> => {
+  async (
+    db: DbClient,
+    userId: string,
+    draft: SetDraft,
+  ): Promise<Result<{ set: WorkoutSet }, "no-current-workout" | "movement-not-found">> => {
     const workoutId = await findCurrentWorkoutId(db, userId);
     if (!workoutId) return { ok: false, reason: "no-current-workout" };
+    // Movements are never deleted, so nothing can change between this check and the insert.
+    const owned = await ensureOwned(db, userId, draft.movementId);
+    if (!owned.ok) return owned;
 
     const set = await db.set.create({
       data: { workoutId, movementId: draft.movementId, reps: draft.reps, weight: draft.weight },

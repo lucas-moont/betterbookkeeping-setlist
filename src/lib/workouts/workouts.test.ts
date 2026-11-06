@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { getServerSidePrismaClient } from "@/lib/db.server";
-import type { ErrorCode, Result } from "@/lib/error-codes";
+import { expectOk } from "@/test/expect-ok";
 import { createMovement, createUser } from "@/test/factories";
 import * as workouts from "@/lib/workouts";
 
@@ -9,12 +9,6 @@ import * as workouts from "@/lib/workouts";
 // files running in parallel.
 // Checks go through the module too (get, history), never straight to the database.
 const db = await getServerSidePrismaClient();
-
-/** Narrows a module Result to its success branch, failing the test with the reason otherwise. */
-function expectOk<T extends object>(result: Result<T, ErrorCode>) {
-  if (!result.ok) throw new Error(`Expected the operation to succeed, but it returned "${result.reason}"`);
-  return result;
-}
 
 describe("get", () => {
   test("returns null when the user has no Current Workout", async () => {
@@ -56,7 +50,7 @@ describe("start", () => {
 describe("addSet", () => {
   test("adds a Set with its Movement, Reps, Weight and Load to the Current Workout", async () => {
     const user = await createUser(db);
-    const movement = await createMovement(db);
+    const movement = await createMovement(db, user.id);
     await workouts.start(db, user.id);
 
     const { set } = expectOk(await workouts.addSet(db, user.id, { movementId: movement.id, reps: 5, weight: 225 }));
@@ -67,7 +61,7 @@ describe("addSet", () => {
 
   test("returns no-current-workout when the user has none, and logs nothing", async () => {
     const user = await createUser(db);
-    const movement = await createMovement(db);
+    const movement = await createMovement(db, user.id);
 
     const result = await workouts.addSet(db, user.id, { movementId: movement.id, reps: 5, weight: 225 });
 
@@ -77,7 +71,7 @@ describe("addSet", () => {
 
   test("after completing, returns no-current-workout and leaves the Completed Workout's Sets alone", async () => {
     const user = await createUser(db);
-    const movement = await createMovement(db);
+    const movement = await createMovement(db, user.id);
     await workouts.start(db, user.id);
     const set = await logSet(user.id, movement.id);
     await workouts.complete(db, user.id);
@@ -88,22 +82,40 @@ describe("addSet", () => {
     expect((await workouts.history(db, user.id))[0]?.sets).toEqual([set]);
   });
 
-  // Unchanged on purpose: the database rejects the unknown movement and the call throws. A
-  // movement-not-found code arrives with movement ownership (ADR 0001).
   test("fails on a Movement that doesn't exist, and adds nothing", async () => {
     const user = await createUser(db);
     await workouts.start(db, user.id);
 
-    await expect(
-      workouts.addSet(db, user.id, { movementId: crypto.randomUUID(), reps: 5, weight: 225 }),
-    ).rejects.toThrow();
+    const result = await workouts.addSet(db, user.id, { movementId: crypto.randomUUID(), reps: 5, weight: 225 });
+
+    expect(result).toEqual({ ok: false, reason: "movement-not-found" });
+    expect((await workouts.get(db, user.id))?.sets).toEqual([]);
+  });
+
+  // Movements belong to one user (ADR 0001). Same answer as for a Movement that doesn't exist, so
+  // nobody learns which ids belong to others.
+  test("fails on another user's Movement the same way, and adds nothing", async () => {
+    const user = await createUser(db);
+    const owner = await createUser(db);
+    const othersMovement = await createMovement(db, owner.id);
+    await workouts.start(db, user.id);
+
+    const forOthersMovement = await workouts.addSet(db, user.id, { movementId: othersMovement.id, reps: 5, weight: 225 });
+    const forMissingMovement = await workouts.addSet(db, user.id, {
+      movementId: crypto.randomUUID(),
+      reps: 5,
+      weight: 225,
+    });
+
+    expect(forOthersMovement).toEqual({ ok: false, reason: "movement-not-found" });
+    expect(forOthersMovement).toEqual(forMissingMovement);
     expect((await workouts.get(db, user.id))?.sets).toEqual([]);
   });
 
   test("adds to the caller's Current Workout, never to another user's", async () => {
     const user = await createUser(db);
     const otherUser = await createUser(db);
-    const movement = await createMovement(db);
+    const movement = await createMovement(db, user.id);
     await workouts.start(db, user.id);
     await workouts.start(db, otherUser.id);
 
@@ -117,7 +129,7 @@ describe("addSet", () => {
 describe("removeSet", () => {
   test("removes only the given Set", async () => {
     const user = await createUser(db);
-    const movement = await createMovement(db);
+    const movement = await createMovement(db, user.id);
     await workouts.start(db, user.id);
     const kept = await logSet(user.id, movement.id, { reps: 5, weight: 185 });
     const removed = await logSet(user.id, movement.id, { reps: 10, weight: 135 });
@@ -130,7 +142,7 @@ describe("removeSet", () => {
   // A Completed Workout's Sets no longer change (CONTEXT.md).
   test("returns set-not-found for a Set of a Completed Workout, and keeps it", async () => {
     const user = await createUser(db);
-    const movement = await createMovement(db);
+    const movement = await createMovement(db, user.id);
     await workouts.start(db, user.id);
     const set = await logSet(user.id, movement.id);
     await workouts.complete(db, user.id);
@@ -144,7 +156,7 @@ describe("removeSet", () => {
   test("returns set-not-found for another user's Set, and keeps it", async () => {
     const owner = await createUser(db);
     const otherUser = await createUser(db);
-    const movement = await createMovement(db);
+    const movement = await createMovement(db, owner.id);
     await workouts.start(db, owner.id);
     await workouts.start(db, otherUser.id);
     const set = await logSet(owner.id, movement.id);
@@ -159,7 +171,7 @@ describe("removeSet", () => {
 
   test("removing the same Set twice returns set-not-found the second time", async () => {
     const user = await createUser(db);
-    const movement = await createMovement(db);
+    const movement = await createMovement(db, user.id);
     await workouts.start(db, user.id);
     const set = await logSet(user.id, movement.id);
     await workouts.removeSet(db, user.id, set.id);
@@ -171,7 +183,7 @@ describe("removeSet", () => {
 describe("complete", () => {
   test("moves the Current Workout, with its Sets, into the history", async () => {
     const user = await createUser(db);
-    const movement = await createMovement(db);
+    const movement = await createMovement(db, user.id);
     const { workout } = expectOk(await workouts.start(db, user.id));
     const set = await logSet(user.id, movement.id, { reps: 3, weight: 315 });
 
@@ -232,7 +244,7 @@ describe("history", () => {
 describe("deleteWorkouts", () => {
   test("deletes every workout in the list, Sets included", async () => {
     const user = await createUser(db);
-    const movement = await createMovement(db);
+    const movement = await createMovement(db, user.id);
     const { workout: withSets } = expectOk(await workouts.start(db, user.id));
     await logSet(user.id, movement.id);
     await workouts.complete(db, user.id);

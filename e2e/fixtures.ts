@@ -1,6 +1,5 @@
-import { randomUUID } from "node:crypto";
 import { test as base } from "@playwright/test";
-import { createAccount } from "./helpers";
+import { signUpAsNewUser } from "./helpers";
 
 /**
  * `page` starts signed in as a brand-new user, so every test owns its data and
@@ -8,7 +7,7 @@ import { createAccount } from "./helpers";
  */
 export const test = base.extend({
   page: async ({ page }, use) => {
-    await createAccount(page, `e2e-${randomUUID()}@example.com`, "correct-horse-battery");
+    await signUpAsNewUser(page);
     await use(page);
   },
 });

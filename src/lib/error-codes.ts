@@ -4,6 +4,8 @@
 export const errorMessages = {
   "no-current-workout": "There is no Current Workout",
   "set-not-found": "Set not found",
+  "movement-name-taken": "You already have a movement with this name",
+  "movement-not-found": "Movement not found",
 } as const;
 
 export type ErrorCode = keyof typeof errorMessages;
@@ -23,4 +25,25 @@ export function toServerResult<T extends object, E extends ErrorCode>(result: Re
   }
   const { ok: _ok, ...data } = result;
   return { success: true, ...(data as T) };
+}
+
+/** A server function's `{ success: false }`, thrown on the client so TanStack Query treats it as an error. */
+export class ServerResultError extends Error {
+  constructor(
+    readonly code: ErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ServerResultError";
+  }
+}
+
+/**
+ * Hands a success back as it is and throws a failure as a ServerResultError. Mutations call it in
+ * their mutationFn, so a failure runs onError (the toast, or a form's own message) and never the
+ * cache invalidation that only a success should trigger.
+ */
+export function unwrap<T extends object, E extends ErrorCode>(result: ServerResult<T, E>): { success: true } & T {
+  if (!result.success) throw new ServerResultError(result.code, result.error);
+  return result;
 }

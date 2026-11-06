@@ -1,4 +1,5 @@
-import { mutationOptions, queryOptions } from "@tanstack/react-query";
+import { queryOptions } from "@tanstack/react-query";
+import { serverMutationOptions } from "@/lib/server-mutation";
 import { progressionKeys } from "@/lib/progression/queries";
 import {
   addSetServerFn,
@@ -33,32 +34,32 @@ export const workoutHistoryQueryOptions = () =>
   });
 
 export const startWorkoutMutationOptions = () =>
-  mutationOptions({
+  serverMutationOptions({
     mutationFn: () => createWorkoutServerFn(),
-    meta: { invalidates: [workoutKeys.current] },
+    invalidates: [workoutKeys.current],
   });
 
 export const addSetMutationOptions = () =>
-  mutationOptions({
+  serverMutationOptions({
     mutationFn: (data: SetDraft) => addSetServerFn({ data }),
-    meta: { invalidates: [workoutKeys.current] },
+    invalidates: [workoutKeys.current],
   });
 
 export const removeSetMutationOptions = () =>
-  mutationOptions({
+  serverMutationOptions({
     mutationFn: (setId: string) => deleteSetServerFn({ data: { setId } }),
-    meta: { invalidates: [workoutKeys.current] },
+    invalidates: [workoutKeys.current],
   });
 
 // A Completed Workout leaves the Current Workout and joins the history and the Progression Charts.
 export const completeWorkoutMutationOptions = () =>
-  mutationOptions({
+  serverMutationOptions({
     mutationFn: () => completeWorkoutServerFn(),
-    meta: { invalidates: [workoutKeys.all, progressionKeys.all] },
+    invalidates: [workoutKeys.all, progressionKeys.all],
   });
 
 export const deleteWorkoutsMutationOptions = () =>
-  mutationOptions({
+  serverMutationOptions({
     mutationFn: (workoutIds: string[]) => deleteWorkoutsServerFn({ data: { workoutIds } }),
-    meta: { invalidates: [workoutKeys.history, progressionKeys.all] },
+    invalidates: [workoutKeys.history, progressionKeys.all],
   });
