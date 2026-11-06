@@ -4,7 +4,7 @@ Each domain concept gets one folder under `src/lib/<domain>/` (`workouts`, `move
 
 - `index.ts` is the deep module: the domain rules, wrapped in `createServerOnlyFn`, taking `(db, userId, ...)`. Server only.
 - `<domain>.functions.ts` holds the `createServerFn` adapters (auth middleware, zod validation, module call, error-code translation). TanStack Start's server-function guide calls these files safe to import anywhere.
-- `queries.ts` holds the query key factory, `queryOptions`, and `mutationOptions`. Each mutation declares `meta.invalidates` as a fixed list of key prefixes, and one `MutationCache` `onSuccess` in `src/router.tsx` invalidates them.
+- `queries.ts` holds the query key factory, `queryOptions`, and `mutationOptions`. Each mutation declares `meta.invalidates` as a fixed list of key prefixes, and one `MutationCache` `onSuccess` in `src/router.tsx` invalidates them. Mutations are built with `serverMutationOptions` (`src/lib/server-mutation.ts`), which also throws a `{ success: false }` result, so a failure never triggers the invalidation.
 - `*.server.ts` is kept for code that must never reach the browser and is imported only inside server-function handlers.
 
 This replaces the per-route `-queries/` folders and the `src/lib/*.server.ts` files that held `createServerFn` exports. The evidence is in `docs/research/tanstack-query-organization.md`.
