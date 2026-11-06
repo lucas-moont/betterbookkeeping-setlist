@@ -1,15 +1,11 @@
 import { describe, expect, test } from "vitest";
 import { getServerSidePrismaClient } from "@/lib/db.server";
+import { createUser } from "@/test/factories";
 import { hashLegacyPasswords } from "./legacy-passwords";
 import { hashPassword, verifyPassword } from "./password";
 
-// Tests share one database with other workers (ADR 0008), so each one only looks at its own user.
 async function createUserWithPassword(password: string) {
-  const db = await getServerSidePrismaClient();
-  return db.user.create({
-    data: { email: `legacy-${crypto.randomUUID()}@example.com`, password },
-    select: { id: true },
-  });
+  return createUser(await getServerSidePrismaClient(), { password });
 }
 
 async function storedPassword(userId: string) {
