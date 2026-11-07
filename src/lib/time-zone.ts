@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { rootRouteId, useRouteContext, useRouter } from "@tanstack/react-router";
+import { rootRouteId, useHydrated, useRouteContext, useRouter } from "@tanstack/react-router";
 import { createIsomorphicFn } from "@tanstack/react-start";
 import { getCookie } from "@tanstack/react-start/server";
 
@@ -58,9 +58,20 @@ export function readTimeZone(): string {
   return timeZoneFromCookie(readCookie());
 }
 
-/** The user's time zone, as the root route read it. Pass it to formatDate. */
+// The zone this page was server-rendered in, as the browser saw the cookie when it loaded the page.
+// Read once, at module load, before useSyncTimeZoneCookie can rewrite the cookie. The root route
+// imports this module, so it loads before hydration. Undefined on the server.
+const zoneAtPageLoad = typeof document === "undefined" ? undefined : readTimeZone();
+
+/**
+ * The user's time zone, for formatDate: the root route context's, except while React hydrates, when
+ * it is the zone the page was server-rendered in. On a first visit the context can change before a
+ * lazily loaded route has hydrated (ADR 0004). React re-renders with the context's zone right after.
+ */
 export function useTimeZone(): string {
-  return useRouteContext({ from: rootRouteId, select: (context) => context.timeZone });
+  const timeZone = useRouteContext({ from: rootRouteId, select: (context) => context.timeZone });
+  const hydrated = useHydrated();
+  return hydrated ? timeZone : (zoneAtPageLoad ?? timeZone);
 }
 
 /**
