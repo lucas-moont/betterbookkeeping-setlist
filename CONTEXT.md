@@ -11,7 +11,7 @@ An exercise in a user's own library, such as "Bench Press". Each user owns their
 _Avoid_: Exercise, lift
 
 **Body-weight Movement**:
-A Movement where the load is the lifter's own body, such as pull-ups, push-ups, or dips. A user can turn this on or off at any time; the change only affects Sets logged afterwards.
+A Movement where the load is the lifter's own body, such as pull-ups, chin-ups, or dips. The examples lift the whole body, because Load counts the full body weight; a movement that lifts only part of it, such as push-ups, still gets the full body weight if the user flags it (docs/research/body-weight-sets-and-progression.md §8). A user can turn this on or off at any time; the change only affects Sets logged afterwards.
 _Avoid_: Calisthenics, bodyweight exercise
 
 **Muscle Group**:
@@ -65,7 +65,7 @@ The Body Weight Entry with the most recent date. Every new Set of a Body-weight 
 _Avoid_: Current weight
 
 **Body Weight Snapshot**:
-The body weight copied into a Set of a Body-weight Movement when the Set becomes a Completed Set. Later Body Weight Entries do not change it. A Planned Set has none and shows the Latest Body Weight instead.
+The body weight copied into a Set of a Body-weight Movement each time the Set becomes a Completed Set. Later Body Weight Entries do not change it. A Planned Set has none and shows the Latest Body Weight instead. Whether a Set takes one is fixed when the Set is logged: turning the Movement's flag on or off later doesn't change it.
 _Avoid_: Live body weight
 
 **Added Weight**:
