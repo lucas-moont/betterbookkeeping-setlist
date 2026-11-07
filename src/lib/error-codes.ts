@@ -7,6 +7,7 @@ export const errorMessages = {
   "movement-name-taken": "You already have a movement with this name",
   "movement-not-found": "Movement not found",
   "body-weight-date-in-future": "The date can't be in the future",
+  "body-weight-entry-not-found": "Body weight entry not found",
 } as const;
 
 export type ErrorCode = keyof typeof errorMessages;

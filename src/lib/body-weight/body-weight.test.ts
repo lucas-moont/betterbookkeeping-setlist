@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { getServerSidePrismaClient } from "@/lib/db.server";
 import { expectOk } from "@/test/expect-ok";
-import { createUser } from "@/test/factories";
+import { createMovement, createUser } from "@/test/factories";
 import * as bodyWeight from "@/lib/body-weight";
+import * as workouts from "@/lib/workouts";
 
 // The body-weight module tested through its interface against the real test database (ADR 0008).
 // Every test creates its own users, so the dates they record never clash with other tests.
@@ -102,5 +103,54 @@ describe("latest", () => {
     expectOk(await bodyWeight.record(db, otherUser.id, { date: "2026-11-03", weight: 150 }, "UTC"));
 
     expect(await bodyWeight.latest(db, user.id)).toBeNull();
+  });
+});
+
+describe("remove", () => {
+  test("deletes the entry for the date and leaves the others", async () => {
+    const user = await createUser(db);
+    expectOk(await bodyWeight.record(db, user.id, { date: "2026-11-03", weight: 172.4 }, "UTC"));
+    expectOk(await bodyWeight.record(db, user.id, { date: "2026-10-20", weight: 175 }, "UTC"));
+
+    expectOk(await bodyWeight.remove(db, user.id, "2026-11-03"));
+
+    expect(await bodyWeight.list(db, user.id)).toEqual([{ date: "2026-10-20", weight: 175 }]);
+  });
+
+  test("returns body-weight-entry-not-found for a date with no entry", async () => {
+    const user = await createUser(db);
+
+    expect(await bodyWeight.remove(db, user.id, "2026-11-03")).toEqual({
+      ok: false,
+      reason: "body-weight-entry-not-found",
+    });
+  });
+
+  test("returns body-weight-entry-not-found for another user's entry, and keeps it", async () => {
+    const user = await createUser(db);
+    const otherUser = await createUser(db);
+    expectOk(await bodyWeight.record(db, otherUser.id, { date: "2026-11-03", weight: 150 }, "UTC"));
+
+    expect(await bodyWeight.remove(db, user.id, "2026-11-03")).toEqual({
+      ok: false,
+      reason: "body-weight-entry-not-found",
+    });
+
+    expect(await bodyWeight.list(db, otherUser.id)).toEqual([{ date: "2026-11-03", weight: 150 }]);
+  });
+
+  // A Completed Set keeps the weight it copied (ADR 0003), so deleting an entry rewrites no history.
+  // Until body-weight sets exist this guards the shape; it starts to matter when sets read the entry.
+  test("leaves a Completed Set with that body weight unchanged", async () => {
+    const user = await createUser(db);
+    const movement = await createMovement(db, user.id, { name: "Pull-up" });
+    expectOk(await bodyWeight.record(db, user.id, { date: "2026-11-03", weight: 172.4 }, "UTC"));
+    expectOk(await workouts.start(db, user.id));
+    expectOk(await workouts.addSet(db, user.id, { movementId: movement.id, reps: 8, weight: 172.4 }));
+
+    expectOk(await bodyWeight.remove(db, user.id, "2026-11-03"));
+
+    const workout = await workouts.get(db, user.id);
+    expect(workout?.sets.map((set) => ({ reps: set.reps, weight: set.weight }))).toEqual([{ reps: 8, weight: 172.4 }]);
   });
 });

@@ -65,3 +65,16 @@ export const latest = createServerOnlyFn(async (db: DbClient, userId: string): P
   const row = await db.bodyWeightEntry.findFirst({ where: { userId }, orderBy: { date: "desc" }, select: entrySelect });
   return row ? toEntry(row) : null;
 });
+
+/**
+ * Deletes the user's entry for a date. Completed Sets keep the body weight they copied (ADR 0003),
+ * so no Set changes. Another user's entry gets the same body-weight-entry-not-found as a
+ * date with no entry, so the answer never reveals it exists (ADR 0001).
+ */
+export const remove = createServerOnlyFn(
+  async (db: DbClient, userId: string, date: string): Promise<Result<object, "body-weight-entry-not-found">> => {
+    // One statement: the ownership check and the delete can't drift apart.
+    const { count } = await db.bodyWeightEntry.deleteMany({ where: { userId, date: toDbDate(date) } });
+    return count === 0 ? { ok: false, reason: "body-weight-entry-not-found" } : { ok: true };
+  },
+);
