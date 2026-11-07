@@ -21,8 +21,11 @@ export type WorkoutSet = {
   movement: Movement;
 };
 
-/** What every read of a Workout returns; the Current and Completed Workouts differ by completedAt. */
-type WorkoutContent = { id: string; sets: WorkoutSet[]; muscleGroups: MuscleGroup[] };
+/**
+ * What every read of a Workout returns; the Current and Completed Workouts differ by completedAt.
+ * startedAt is null on Workouts from before it was recorded: unknown, never guessed (ADR 0007).
+ */
+type WorkoutContent = { id: string; startedAt: Date | null; sets: WorkoutSet[]; muscleGroups: MuscleGroup[] };
 
 export type CurrentWorkout = WorkoutContent & { completedAt: null };
 
@@ -31,6 +34,7 @@ export type CompletedWorkout = WorkoutContent & { completedAt: Date };
 // Only the columns the screens use, so user and foreign-key ids stay on the server.
 const workoutSelect = {
   id: true,
+  startedAt: true,
   completedAt: true,
   sets: {
     // createdAt, then id: Sets added in one request share a createdAt (ADR 0007, ADR 0011).
@@ -64,32 +68,42 @@ type WorkoutRow = Prisma.WorkoutGetPayload<{ select: typeof workoutSelect }>;
 // What get and history both build from a stored Workout; each adds its own completedAt.
 function toWorkout(row: WorkoutRow): WorkoutContent {
   const sets = row.sets.map(toSet);
-  return { id: row.id, sets, muscleGroups: muscleGroupsOf(sets) };
+  return { id: row.id, startedAt: row.startedAt, sets, muscleGroups: muscleGroupsOf(sets) };
 }
 
-/** Starts a new Current Workout for the user. */
+/**
+ * Starts a Current Workout for the user, or returns the one already open, with its Sets: a user has
+ * at most one (ADR 0006), so a double click on "Start Workout" starts one Workout.
+ */
 export const start = createServerOnlyFn(
   async (db: DbClient, userId: string): Promise<Result<{ workout: CurrentWorkout }, never>> => {
-    const workout = await db.workout.create({ data: { userId }, select: { id: true } });
-    return { ok: true, workout: { id: workout.id, completedAt: null, sets: [], muscleGroups: [] } };
+    // The partial unique index decides, so two concurrent starts can't both insert. ON CONFLICT
+    // instead of catching P2002: after an error Postgres aborts the whole transaction, and db may be
+    // a caller's transaction client (ADR 0006).
+    await db.$executeRaw`
+      INSERT INTO "Workout" (id, "userId", "startedAt")
+      VALUES (${crypto.randomUUID()}, ${userId}, ${new Date()})
+      ON CONFLICT ("userId") WHERE "completedAt" IS NULL DO NOTHING`;
+    const workout = await get(db, userId);
+    // Nothing to read only if a complete() ran between the two statements, or, in a caller's
+    // REPEATABLE READ transaction, if the row that won the conflict was committed after it began.
+    if (!workout) throw new Error("The Current Workout was completed while it was being started");
+    return { ok: true, workout };
   },
 );
 
-// What makes a workout the user's Current Workout. Every operation filters with this, and nothing
-// else spells the rule out.
+// What makes a workout the user's Current Workout. Every Prisma query filters with this. Raw SQL
+// can't reuse it, so the same rule is written out twice more: in start()'s ON CONFLICT and in the
+// partial unique index of ADR 0006 (the one_current_workout migration), which lets it match one
+// Workout at most. Change all three together.
 const currentWorkoutWhere = (userId: string) => ({ userId, completedAt: null });
 
 // A Set of the user's Current Workout: the only Sets removeSet and setCompleted may touch.
 const currentWorkoutSetWhere = (userId: string, setId: string) => ({ id: setId, workout: currentWorkoutWhere(userId) });
 
-// Until the partial index of ADR 0006 allows only one, a user can have several open workouts. This
-// tie-break makes get, addSet and complete pick the same one; delete it once the index exists.
-const newestFirst = { id: "desc" } as const;
-
 async function findCurrentWorkoutId(db: DbClient, userId: string): Promise<string | null> {
   const workout = await db.workout.findFirst({
     where: currentWorkoutWhere(userId),
-    orderBy: newestFirst,
     select: { id: true },
   });
   return workout?.id ?? null;
@@ -99,7 +113,6 @@ async function findCurrentWorkoutId(db: DbClient, userId: string): Promise<strin
 export const get = createServerOnlyFn(async (db: DbClient, userId: string): Promise<CurrentWorkout | null> => {
   const workout = await db.workout.findFirst({
     where: currentWorkoutWhere(userId),
-    orderBy: newestFirst,
     select: workoutSelect,
   });
   return workout && { ...toWorkout(workout), completedAt: null };
