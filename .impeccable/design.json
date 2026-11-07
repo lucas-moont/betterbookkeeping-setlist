@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-06T00:00:00Z",
+  "title": "Design System: Setlist",
+  "extensions": {
+    "colorMeta": {
+      "chalk-rust": { "role": "primary", "displayName": "Chalk Rust", "canonical": "oklch(55% 0.2 35)", "tonalRamp": ["oklch(25% 0.1 35)", "oklch(35% 0.14 35)", "oklch(45% 0.18 35)", "oklch(55% 0.2 35)", "oklch(65% 0.17 35)", "oklch(75% 0.12 35)", "oklch(85% 0.07 35)", "oklch(95% 0.025 35)"] },
+      "page-ground": { "role": "neutral", "displayName": "Page Ground", "canonical": "oklch(98.4% 0.003 247.858)" },
+      "surface": { "role": "neutral", "displayName": "Surface", "canonical": "#ffffff" },
+      "hover-wash": { "role": "neutral", "displayName": "Hover Wash", "canonical": "oklch(96.8% 0.007 247.896)" },
+      "hairline": { "role": "neutral", "displayName": "Hairline", "canonical": "oklch(92.9% 0.013 255.508)" },
+      "field-border": { "role": "neutral", "displayName": "Field Border", "canonical": "oklch(87.2% 0.01 258.338)" },
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "oklch(20.8% 0.042 265.755)", "tonalRamp": ["oklch(20.8% 0.042 265.755)", "oklch(27.9% 0.041 260.031)", "oklch(37.2% 0.044 257.287)", "oklch(44.6% 0.043 257.281)", "oklch(55.4% 0.046 257.417)", "oklch(70.4% 0.04 256.788)", "oklch(92.9% 0.013 255.508)", "oklch(98.4% 0.003 247.858)"] },
+      "ink-soft": { "role": "neutral", "displayName": "Ink Soft", "canonical": "oklch(44.6% 0.043 257.281)" },
+      "ink-muted": { "role": "neutral", "displayName": "Ink Muted", "canonical": "oklch(55.4% 0.046 257.417)" },
+      "ink-faint": { "role": "neutral", "displayName": "Ink Faint", "canonical": "oklch(70.4% 0.04 256.788)" },
+      "field-label": { "role": "neutral", "displayName": "Field Label", "canonical": "oklch(37.3% 0.034 259.733)" },
+      "danger": { "role": "status", "displayName": "Danger", "canonical": "oklch(57.7% 0.245 27.325)" },
+      "danger-wash": { "role": "status", "displayName": "Danger Wash", "canonical": "oklch(97.1% 0.013 17.38)" },
+      "danger-line": { "role": "status", "displayName": "Danger Line", "canonical": "oklch(88.5% 0.062 18.334)" }
+    },
+    "typographyMeta": {
+      "headline": { "displayName": "Headline", "purpose": "One page title per screen, top left." },
+      "title": { "displayName": "Title", "purpose": "Card headings, such as the workout date." },
+      "body": { "displayName": "Body", "purpose": "Almost all content: rows, table cells, messages." },
+      "label": { "displayName": "Label", "purpose": "Nav items, form labels, button text, movement names." },
+      "caption": { "displayName": "Caption", "purpose": "Tiny supporting text, like 'Logged in as'." }
+    },
+    "shadows": [
+      { "name": "card", "value": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)", "purpose": "Tailwind shadow-sm: the only elevation, on cards and filled buttons." }
+    ],
+    "motion": [
+      { "name": "colors", "value": "color, background-color, border-color 150ms cubic-bezier(0.4, 0, 0.2, 1)", "purpose": "Tailwind transition-colors on buttons and nav items. No other motion." }
+    ],
+    "breakpoints": []
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one main action on a screen, such as Start Workout or Add.",
+      "html": "<button class=\"ds-btn-primary\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 12h14\"/><path d=\"M12 5v14\"/></svg>Add</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 8px 16px; border: none; border-radius: 8px; background: oklch(55% 0.2 35); color: #fff; font: 500 14px/20px ui-sans-serif, system-ui, sans-serif; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1); cursor: pointer; transition: background-color 150ms; } .ds-btn-primary:hover { background: oklch(55% 0.2 35 / 0.9); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px #fff, 0 0 0 4px oklch(55% 0.2 35 / 0.5); }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Secondary page action, such as Complete Workout.",
+      "html": "<button class=\"ds-btn-outline\">Complete Workout</button>",
+      "css": ".ds-btn-outline { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 8px 16px; border: 1px solid #d1d5db; border-radius: 8px; background: #fff; color: #374151; font: 500 14px/20px ui-sans-serif, system-ui, sans-serif; cursor: pointer; transition: background-color 150ms, border-color 150ms; } .ds-btn-outline:hover { background: #f9fafb; border-color: #9ca3af; } .ds-btn-outline:focus-visible { outline: none; box-shadow: 0 0 0 2px #fff, 0 0 0 4px oklch(55% 0.2 35 / 0.5); }"
+    },
+    {
+      "name": "Destructive Button",
+      "kind": "button",
+      "refersTo": "button-destructive",
+      "description": "Irreversible actions, such as deleting workouts.",
+      "html": "<button class=\"ds-btn-danger\">Delete</button>",
+      "css": ".ds-btn-danger { display: inline-flex; align-items: center; height: 40px; padding: 8px 16px; border: none; border-radius: 8px; background: #dc2626; color: #fff; font: 500 14px/20px ui-sans-serif, system-ui, sans-serif; cursor: pointer; transition: background-color 150ms; } .ds-btn-danger:hover { background: #b91c1c; }"
+    },
+    {
+      "name": "Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Text and number fields; selects share the same box.",
+      "html": "<input class=\"ds-input\" type=\"number\" placeholder=\"Weight\" />",
+      "css": ".ds-input { height: 40px; width: 96px; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 8px; background: #fff; color: #0f172a; font: 400 14px/20px ui-sans-serif, system-ui, sans-serif; } .ds-input::placeholder { color: #9ca3af; } .ds-input:focus-visible { outline: none; border-color: oklch(55% 0.2 35); box-shadow: 0 0 0 2px oklch(55% 0.2 35 / 0.5); }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "The only container: white, hairline border, shadow-sm.",
+      "html": "<div class=\"ds-card\"><h3 class=\"ds-card-title\">Thursday, November 6, 2026</h3><p class=\"ds-card-body\">No sets yet.</p></div>",
+      "css": ".ds-card { width: 320px; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1); font-family: ui-sans-serif, system-ui, sans-serif; } .ds-card-title { margin: 0 0 16px; font-size: 18px; font-weight: 600; line-height: 1; letter-spacing: -0.025em; color: #0f172a; } .ds-card-body { margin: 0; font-size: 14px; color: #64748b; }"
+    },
+    {
+      "name": "Set Row",
+      "kind": "custom",
+      "refersTo": "list-row",
+      "description": "A repeated item inside a card: name, detail, and a remove button.",
+      "html": "<div class=\"ds-row\"><div><span class=\"ds-row-name\">Bench Press</span><span class=\"ds-row-detail\">5 reps × 185 lbs</span></div><button class=\"ds-row-x\" aria-label=\"Remove set\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"><path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/></svg></button></div>",
+      "css": ".ds-row { display: flex; align-items: center; justify-content: space-between; width: 360px; padding: 8px 12px; border-radius: 8px; background: #f8fafc; font: 400 14px/20px ui-sans-serif, system-ui, sans-serif; } .ds-row-name { font-weight: 500; color: #0f172a; } .ds-row-detail { margin-left: 8px; color: #64748b; } .ds-row-x { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: none; border-radius: 8px; background: transparent; color: #94a3b8; cursor: pointer; } .ds-row-x:hover { background: #f3f4f6; color: #111827; }"
+    },
+    {
+      "name": "Sidebar Nav",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "White sidebar items; active and hover share the slate-100 wash.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-item is-active\" href=\"#\">Current Workout</a><a class=\"ds-nav-item\" href=\"#\">Workout History</a><a class=\"ds-nav-item\" href=\"#\">Movements</a></nav>",
+      "css": ".ds-nav { display: flex; flex-direction: column; gap: 4px; width: 224px; padding: 16px; background: #fff; border-right: 1px solid #e2e8f0; font-family: ui-sans-serif, system-ui, sans-serif; } .ds-nav-item { padding: 8px 12px; border-radius: 8px; font-size: 14px; font-weight: 500; color: #475569; text-decoration: none; transition: background-color 150ms, color 150ms; } .ds-nav-item:hover, .ds-nav-item.is-active { background: #f1f5f9; color: #0f172a; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Training Notebook",
+    "overview": "Setlist looks like a clean training notebook: a pale page, white cards laid on it, and the numbers of each set written plainly. Nothing decorates the work. The lifter's data is the content, and the interface stays out of its way. The system is small and came with the assignment: Tailwind's slate neutrals, the system sans-serif, white cards with a hairline border and the faintest shadow, and one brand color, Chalk Rust, used for the main action and the logo. Components are plain and dependable: gently rounded corners, minimal shadow, no effects. They feel like a tool, not a showcase. New screens extend this world; they don't reinvent it.",
+    "keyCharacteristics": ["One accent (Chalk Rust) on a cool slate-and-white ground", "System sans-serif, two weights doing most of the work (500 and 600)", "Flat white cards with a 1px hairline and shadow-sm", "Rows inside cards sit on a pale slate fill, not on dividers", "lucide-react line icons at 16px beside labels"],
+    "rules": [
+      { "name": "The One Accent Rule", "body": "Chalk Rust is the only saturated color on a normal screen. It marks the primary action, the focus ring, and selection; it never fills a card, a header, or a background region.", "section": "colors" },
+      { "name": "The Two Grays Rule", "body": "The layout and pages use slate; the form primitives (button, input, select) use gray. This split is the incumbent state. Keep each primitive on the gray it already uses, and use slate for everything new outside those primitives.", "section": "colors" },
+      { "name": "The Small Body Rule", "body": "Body copy is 14px (text-sm). Hierarchy comes from weight (500/600) and color (ink vs. muted), not from more sizes.", "section": "typography" },
+      { "name": "The Flat Card Rule", "body": "One elevation level exists: the card. Don't stack shadows, add hover lifts, or introduce a second, deeper shadow for new surfaces. A dialog may sit above the page with a scrim, but its panel is still a card.", "section": "elevation" }
+    ],
+    "dos": ["Do build new screens from src/components/ui/ (Button, Card, Input, Select, Alert) before writing new markup.", "Do open every page with a text-2xl font-semibold text-slate-900 headline and put its main action at the right of the same row.", "Do put content in white cards on the slate-50 ground, and put repeated items inside a card as slate-50 rows with 8px gaps.", "Do use Chalk Rust only for the primary action, links, focus, selection, and data that needs one highlight color.", "Do use lucide-react icons at 16px (w-4 h-4) beside text.", "Do show the pointer cursor on everything clickable: buttons, links, selects, checkboxes, radios, and <summary>. Text fields and textareas keep the text cursor.", "Do write UI copy with the terms in CONTEXT.md and show weights in pounds."],
+    "donts": ["Don't introduce a new font, a second accent color, gradients inside the app, or dark surfaces.", "Don't add shadows deeper than shadow-sm or hover lifts.", "Don't change the radius steps (8px controls, 12px cards).", "Don't fill a card, header, or page region with Chalk Rust."]
+  }
+}
