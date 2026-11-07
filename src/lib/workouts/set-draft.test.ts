@@ -33,3 +33,61 @@ describe("setDraftSchema", () => {
     expect(setDraftSchema.safeParse({ ...validDraft, count }).success).toBe(false);
   });
 });
+
+describe("setDraftSchema with Added Weight", () => {
+  test.each([
+    [25, "weighted vest"],
+    [-20, "red band"],
+    [0.01, "x"],
+  ])("accepts an Added Weight of %s with the note %j", (addedWeight, addedWeightNote) => {
+    expect(setDraftSchema.safeParse({ ...validDraft, addedWeight, addedWeightNote }).success).toBe(true);
+  });
+
+  test("trims the note", () => {
+    const parsed = setDraftSchema.parse({ ...validDraft, addedWeight: 25, addedWeightNote: "  dip belt  " });
+
+    expect(parsed.addedWeightNote).toBe("dip belt");
+  });
+
+  test("accepts a note of 60 characters", () => {
+    const draft = { ...validDraft, addedWeight: 25, addedWeightNote: "x".repeat(60) };
+
+    expect(setDraftSchema.safeParse(draft).success).toBe(true);
+  });
+
+  // The two-decimal rule and the range come from weightSchema, tested in src/lib/weight.test.ts.
+  test.each([0, 1.005, -10000])("refuses an Added Weight of %s", (addedWeight) => {
+    expect(setDraftSchema.safeParse({ ...validDraft, addedWeight, addedWeightNote: "vest" }).success).toBe(false);
+  });
+
+  test.each(["", "   ", "x".repeat(61)])("refuses the note %j", (addedWeightNote) => {
+    expect(setDraftSchema.safeParse({ ...validDraft, addedWeight: 25, addedWeightNote }).success).toBe(false);
+  });
+
+  // The messages are the copy the form shows beside the field.
+  const describeIt = 'Describe the added weight, for example "weighted vest".';
+
+  test("refuses an Added Weight without a note, with the error on the note", () => {
+    const result = setDraftSchema.safeParse({ ...validDraft, addedWeight: 25 });
+
+    expect(result.error?.issues.map(({ path, message }) => ({ path, message }))).toEqual([
+      { path: ["addedWeightNote"], message: describeIt },
+    ]);
+  });
+
+  test("refuses a blank note with the same message", () => {
+    const result = setDraftSchema.safeParse({ ...validDraft, addedWeight: 25, addedWeightNote: "   " });
+
+    expect(result.error?.issues.map(({ path, message }) => ({ path, message }))).toEqual([
+      { path: ["addedWeightNote"], message: describeIt },
+    ]);
+  });
+
+  test("refuses a note without an Added Weight, with the error on the Added Weight", () => {
+    const result = setDraftSchema.safeParse({ ...validDraft, addedWeightNote: "dip belt" });
+
+    expect(result.error?.issues.map(({ path, message }) => ({ path, message }))).toEqual([
+      { path: ["addedWeight"], message: "Enter the added weight, or remove it." },
+    ]);
+  });
+});
