@@ -73,7 +73,7 @@ ${error.stack || "No stack trace available"}`;
                   <p className="text-sm">{error.message}</p>
                   {error.stack && (
                     <details className="mt-2" open>
-                      <summary className="cursor-pointer text-sm font-medium">Stack trace</summary>
+                      <summary className="text-sm font-medium">Stack trace</summary>
                       <pre className="mt-2 text-xs overflow-x-auto bg-red-100 p-2 rounded whitespace-pre-wrap break-words max-w-full">
                         {error.stack}
                       </pre>
