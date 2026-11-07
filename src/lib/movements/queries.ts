@@ -6,6 +6,8 @@ import {
   createMovementServerFn,
   getMovementsServerFn,
   setMovementMuscleGroupServerFn,
+  updateMovementServerFn,
+  type MovementEdit,
   type MuscleGroupChange,
 } from "./movements.functions";
 
@@ -33,4 +35,13 @@ export const setMuscleGroupMutationOptions = () =>
   serverMutationOptions({
     mutationFn: (data: MuscleGroupChange) => setMovementMuscleGroupServerFn({ data }),
     invalidates: [movementKeys.all, workoutKeys.all],
+  });
+
+// The edit dialog. A Set reads its Movement's name and a Workout its Muscle Groups (ADR 0011), so
+// the Current Workout and the history refresh too. A taken name shows under the name field.
+export const updateMovementMutationOptions = () =>
+  serverMutationOptions({
+    mutationFn: (data: MovementEdit) => updateMovementServerFn({ data }),
+    invalidates: [movementKeys.all, workoutKeys.all],
+    formErrors: ["movement-name-taken"],
   });
