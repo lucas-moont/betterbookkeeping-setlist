@@ -51,11 +51,16 @@ model Workout {
   userId      String
   user        User      @relation(fields: [userId], references: [id])
   id          String    @id @default(uuid())
+  // NULL only on Workouts from before it existed, read as "unknown" (ADR 0007). Every new one has it.
+  startedAt   DateTime?
   completedAt DateTime?
   sets        Set[]
 
   // The history reads a user's Completed Workouts by completedAt.
   @@index([userId, completedAt])
+  // A user has at most one Current Workout, through a partial unique index on userId where
+  // completedAt is NULL. Prisma can't express it, so it only exists in the one_current_workout
+  // migration (ADR 0006).
 }
 
 model Set {
