@@ -1,5 +1,10 @@
 import { test, expect } from "./fixtures";
+import type { Page } from "@playwright/test";
 import { createMovement, openPage, signOut, signUpAsNewUser, startWorkout, uniqueToken } from "./helpers";
+
+// The names in the list, in order. A row's own text also holds its muscle group select's options
+// and the body-weight indicator, so the checks read the name alone.
+const movementNames = (page: Page) => page.getByTestId("movement-name");
 
 test.describe("Movements", () => {
   test.describe("create", () => {
@@ -42,7 +47,7 @@ test.describe("Movements", () => {
       await expect(nameField).toHaveAccessibleDescription("You already have a movement with this name");
       await expect(nameField).toHaveAttribute("aria-invalid", "true");
       await expect(nameField).toHaveValue(`  ${name.toUpperCase()} `);
-      await expect(page.getByRole("listitem")).toHaveText([name]);
+      await expect(movementNames(page)).toHaveText([name]);
     });
   });
 
@@ -54,7 +59,7 @@ test.describe("Movements", () => {
       await openPage(page, "/movements");
 
       // Each test signs in as a new user, who only sees their own movements (ADR 0001).
-      await expect(page.getByRole("listitem")).toHaveText(names);
+      await expect(movementNames(page)).toHaveText(names);
     });
 
     test("should show movements sorted alphabetically", async ({ page }) => {
@@ -63,7 +68,7 @@ test.describe("Movements", () => {
 
       await openPage(page, "/movements");
 
-      await expect(page.getByRole("listitem").filter({ hasText: token })).toHaveText([
+      await expect(movementNames(page).filter({ hasText: token })).toHaveText([
         `${token} Alpha`,
         `${token} Bravo`,
         `${token} Charlie`,
