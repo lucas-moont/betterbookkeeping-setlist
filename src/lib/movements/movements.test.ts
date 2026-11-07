@@ -14,7 +14,7 @@ describe("create", () => {
 
     const { movement } = expectOk(await movements.create(db, user.id, { name: "Bench Press" }));
 
-    expect(movement).toEqual({ id: expect.any(String), name: "Bench Press", muscleGroup: null });
+    expect(movement).toEqual({ id: expect.any(String), name: "Bench Press", muscleGroup: null, isBodyWeight: false });
     expect(await movements.list(db, user.id)).toEqual([movement]);
   });
 
@@ -23,7 +23,21 @@ describe("create", () => {
 
     const { movement } = expectOk(await movements.create(db, user.id, { name: "Bench Press", muscleGroup: "CHEST" }));
 
-    expect(movement).toEqual({ id: expect.any(String), name: "Bench Press", muscleGroup: "CHEST" });
+    expect(movement).toEqual({
+      id: expect.any(String),
+      name: "Bench Press",
+      muscleGroup: "CHEST",
+      isBodyWeight: false,
+    });
+    expect(await movements.list(db, user.id)).toEqual([movement]);
+  });
+
+  test("adds a Body-weight Movement", async () => {
+    const user = await createUser(db);
+
+    const { movement } = expectOk(await movements.create(db, user.id, { name: "Pull-up", isBodyWeight: true }));
+
+    expect(movement).toEqual({ id: expect.any(String), name: "Pull-up", muscleGroup: null, isBodyWeight: true });
     expect(await movements.list(db, user.id)).toEqual([movement]);
   });
 

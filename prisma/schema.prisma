@@ -22,15 +22,17 @@ model User {
 // Every Movement belongs to one user (ADR 0001). nameKey is the name trimmed and lower-cased, so
 // names are unique per user ignoring case. The code sets it on every write to name.
 model Movement {
-  id          String       @id @default(uuid())
-  userId      String
-  user        User         @relation(fields: [userId], references: [id])
-  name        String
-  nameKey     String
+  id           String       @id @default(uuid())
+  userId       String
+  user         User         @relation(fields: [userId], references: [id])
+  name         String
+  nameKey      String
   // Optional: a Movement without one counts toward no Workout's Muscle Groups (ADR 0011).
-  muscleGroup MuscleGroup?
-  createdAt   DateTime     @default(now())
-  sets        Set[]
+  muscleGroup  MuscleGroup?
+  // A Body-weight Movement (CONTEXT.md). Changing it only affects Sets logged afterwards (ADR 0003).
+  isBodyWeight Boolean      @default(false)
+  createdAt    DateTime     @default(now())
+  sets         Set[]
 
   @@unique([userId, nameKey])
 }
@@ -55,12 +57,12 @@ model Workout {
   startedAt   DateTime?
   completedAt DateTime?
   sets        Set[]
-
-  // The history reads a user's Completed Workouts by completedAt.
-  @@index([userId, completedAt])
   // A user has at most one Current Workout, through a partial unique index on userId where
   // completedAt is NULL. Prisma can't express it, so it only exists in the one_current_workout
   // migration (ADR 0006).
+
+  // The history reads a user's Completed Workouts by completedAt.
+  @@index([userId, completedAt])
 }
 
 model Set {
