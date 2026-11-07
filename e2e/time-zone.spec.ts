@@ -88,18 +88,22 @@ test.describe("on a first visit", () => {
   const timeZone = today(ahead, "long") !== today("UTC", "long") ? ahead : behind;
   test.use({ timezoneId: timeZone });
 
-  test("should re-render in the browser's zone as soon as it stores the cookie", async ({ page }) => {
+  test("should re-render in the browser's zone as soon as it stores the cookie", async ({ page, browserName }) => {
+    test.skip(browserName !== "chromium", "slows the CPU through the Chrome DevTools Protocol");
     await startWorkout(page);
     // No zone stored yet.
     await page.context().clearCookies({ name: "tz" });
     const hydrationErrors = collectHydrationErrors(page);
+    // A slow device: the cookie is stored while the route is still hydrating (ADR 0004).
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
 
     const response = await page.goto("/current-workout");
 
     // The server didn't know the zone yet, so it rendered UTC...
     expect(await response?.text()).toContain(today("UTC", "long"));
     // ...and the browser corrected the same page without a navigation.
-    await expect(page.getByText(today(timeZone, "long"))).toBeVisible();
+    await expect(page.getByText(today(timeZone, "long"))).toBeVisible({ timeout: 20_000 });
     const cookies = await page.context().cookies();
     expect(cookies.find((cookie) => cookie.name === "tz")?.value).toBe(encodeURIComponent(timeZone));
     expect(hydrationErrors).toEqual([]);
