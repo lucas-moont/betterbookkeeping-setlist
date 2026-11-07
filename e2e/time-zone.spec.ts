@@ -16,6 +16,13 @@ function today(timeZone: string, style: "short" | "long") {
   return new Intl.DateTimeFormat("en-US", options).format(new Date());
 }
 
+// Today as a date field holds it, "YYYY-MM-DD". en-CA writes dates in that order.
+function todayIso(timeZone: string) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(
+    new Date(),
+  );
+}
+
 // React reports a server render that the browser disagrees with as a hydration error. The production
 // build, which CI tests, minifies the message to a code: #418, #419, #422, #423 or #425.
 const hydrationError = /hydrat|#4(18|19|22|23|25)\b/i;
@@ -60,6 +67,16 @@ for (const timeZone of [ahead, behind]) {
 
       await expect(page.getByRole("cell", { name: today(timeZone, "short") })).toBeVisible();
       expect(await response?.text()).toContain(today(timeZone, "short"));
+      expect(hydrationErrors).toEqual([]);
+    });
+
+    test("should default the body weight date to the browser's today, on the server too", async ({ page }) => {
+      const hydrationErrors = collectHydrationErrors(page);
+
+      const response = await openPage(page, "/profile");
+
+      await expect(page.getByLabel("Date")).toHaveValue(todayIso(timeZone));
+      expect(await response?.text()).toContain(`value="${todayIso(timeZone)}"`);
       expect(hydrationErrors).toEqual([]);
     });
   });
