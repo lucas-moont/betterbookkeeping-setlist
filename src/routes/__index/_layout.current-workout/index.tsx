@@ -60,11 +60,19 @@ function CurrentWorkoutPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-semibold text-slate-900">Current Workout</h1>
-        <Button variant="outline" onClick={() => completeWorkoutMutation.mutate()}>
-          <Check className="w-4 h-4 mr-2" />
-          {completeWorkoutMutation.isPending ? "Completing..." : "Complete Workout"}
+        <Button variant="outline" onClick={() => completeWorkoutMutation.mutate()} className="shrink-0">
+          <Check className="w-4 h-4" />
+          {completeWorkoutMutation.isPending ? (
+            "Completing..."
+          ) : (
+            // The short label keeps the title on one line on a phone.
+            <>
+              <span className="sm:hidden">Complete</span>
+              <span className="hidden sm:inline">Complete Workout</span>
+            </>
+          )}
         </Button>
       </div>
 
