@@ -86,3 +86,21 @@ describe("list", () => {
     expect(dates).toEqual(["2026-11-03", "2026-10-20", "2026-09-01"]);
   });
 });
+
+describe("latest", () => {
+  test("is the entry with the most recent date, not the one recorded last", async () => {
+    const user = await createUser(db);
+    expectOk(await bodyWeight.record(db, user.id, { date: "2026-11-03", weight: 172.4 }, "UTC"));
+    expectOk(await bodyWeight.record(db, user.id, { date: "2026-10-20", weight: 175 }, "UTC"));
+
+    expect(await bodyWeight.latest(db, user.id)).toEqual({ date: "2026-11-03", weight: 172.4 });
+  });
+
+  test("is null for a user with no entries, even when another user has some", async () => {
+    const user = await createUser(db);
+    const otherUser = await createUser(db);
+    expectOk(await bodyWeight.record(db, otherUser.id, { date: "2026-11-03", weight: 150 }, "UTC"));
+
+    expect(await bodyWeight.latest(db, user.id)).toBeNull();
+  });
+});

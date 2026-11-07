@@ -56,3 +56,12 @@ export const record = createServerOnlyFn(
     return { ok: true, entry: toEntry(row) };
   },
 );
+
+/**
+ * The Latest Body Weight: the entry with the most recent date, or null when the user has none. The
+ * date decides, not the order of recording, so correcting an old date never changes it.
+ */
+export const latest = createServerOnlyFn(async (db: DbClient, userId: string): Promise<BodyWeightEntry | null> => {
+  const row = await db.bodyWeightEntry.findFirst({ where: { userId }, orderBy: { date: "desc" }, select: entrySelect });
+  return row ? toEntry(row) : null;
+});
