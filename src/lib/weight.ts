@@ -14,8 +14,8 @@ export const weightStep = 0.01;
  */
 export const weightSchema = z
   .number()
-  .min(-maxWeight)
-  .max(maxWeight)
+  .min(-maxWeight, `Enter a weight of at least -${maxWeight}`)
+  .max(maxWeight, `Enter a weight up to ${maxWeight}`)
   .refine((weight) => roundToHundredths(weight) === weight, "Use at most two decimals");
 
 function roundToHundredths(n: number): number {
