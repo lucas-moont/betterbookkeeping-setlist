@@ -8,14 +8,15 @@ datasource db {
 }
 
 model User {
-  id        String     @id @default(uuid())
-  email     String     @unique
-  name      String?
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-  password  String
-  workouts  Workout[]
-  movements Movement[]
+  id                String            @id @default(uuid())
+  email             String            @unique
+  name              String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  password          String
+  workouts          Workout[]
+  movements         Movement[]
+  bodyWeightEntries BodyWeightEntry[]
 }
 
 // Every Movement belongs to one user (ADR 0001). nameKey is the name trimmed and lower-cased, so
@@ -69,4 +70,19 @@ model Set {
 
   @@index([workoutId])
   @@index([movementId])
+}
+
+// The lifter's body weight on one calendar date (CONTEXT.md). At most one per user per date:
+// recording the same date again replaces the weight. date is a Postgres date with no time of day,
+// so it crosses the server-function boundary as "YYYY-MM-DD" text (ADR 0004).
+model BodyWeightEntry {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  date      DateTime @db.Date
+  weight    Decimal  @db.Decimal(6, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, date])
 }

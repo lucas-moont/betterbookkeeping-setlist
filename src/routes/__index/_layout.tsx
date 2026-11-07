@@ -19,8 +19,10 @@ const navItems = [
 function RouteComponent() {
   const { user } = Route.useRouteContext();
   return (
-    <div className="min-h-screen flex bg-slate-50">
-      <nav className="w-64 bg-white border-r border-slate-200 p-4 flex flex-col">
+    // The shell is exactly the window's height: the sidebar stays put, with its user block always in
+    // view, and only the page content scrolls.
+    <div className="h-dvh flex bg-slate-50">
+      <nav className="w-64 shrink-0 overflow-y-auto bg-white border-r border-slate-200 p-4 flex flex-col">
         <img src="/wordmark.svg" alt="Logo" className="h-6 mb-8" />
         <div className="flex flex-col gap-1 flex-1">
           {navItems.map(({ to, label, icon: Icon }) => (
@@ -34,13 +36,18 @@ function RouteComponent() {
           ))}
         </div>
         <div className="border-t border-slate-200 pt-4 mt-4 space-y-2">
-          <div className="flex items-center gap-3 px-3 py-2 text-sm text-slate-600">
+          {/* The way into the Profile: the user's own block, active while the Profile is open. */}
+          <Link
+            to="/profile"
+            className="group flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors [&.active]:bg-slate-100 [&.active]:text-slate-900">
             <User className="w-4 h-4" />
             <div className="truncate">
-              <p className="text-xs text-slate-400">Logged in as</p>
+              <p className="text-xs text-slate-500 group-hover:text-slate-600 group-[.active]:text-slate-600">
+                Logged in as
+              </p>
               <p className="font-medium truncate">{user.name || user.email}</p>
             </div>
-          </div>
+          </Link>
           <a href="/logout">
             <Button variant="ghost" size="sm" className="w-full justify-start gap-3 text-slate-600">
               <LogOut className="w-4 h-4" />
@@ -49,7 +56,7 @@ function RouteComponent() {
           </a>
         </div>
       </nav>
-      <main className="flex-1 p-6">
+      <main className="flex-1 min-w-0 overflow-y-auto p-6">
         <Outlet />
       </main>
     </div>

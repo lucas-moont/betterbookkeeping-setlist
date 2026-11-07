@@ -144,9 +144,12 @@ Postgres listens on host port `55432` instead of `5432` so it doesn't conflict w
 ```
 src/
 ├── routes/        # File-based routes: pages, loaders and local UI state
-├── components/    # Shared UI components
+│   └── <route>/-components/  # Pieces only that page uses (the "-" keeps them out of the routes)
+├── components/
+│   ├── ui/        # Small UI primitives (Button, Card, Input, Select, Alert)
+│   └── charts/    # TimeChart: the one line chart over time, shared by every chart screen
 └── lib/
-    ├── <domain>/  # One folder per concept (auth, movements, workouts, progression), with
+    ├── <domain>/  # One folder per concept (auth, movements, workouts, body-weight, progression), with
     │              #   index.ts               the domain rules (server only)
     │              #   <domain>.functions.ts  server functions
     │              #   queries.ts             query keys, queries and mutations
@@ -309,3 +312,27 @@ Each workout server function used to do everything itself: validate the input, r
 **Tests.** Integration: a set is added completed; `count` adds identical sets; un-completing and completing again; a set already in that state is ok and unchanged; the list order survives toggling; a set of a Completed Workout or of another user is refused and left as it was; a Planned Set stays not done in the history; a workout's groups skip Planned Sets and movements without a group, don't repeat and follow the list order; changing a movement's group changes an old workout's groups; `setMuscleGroup` changes and clears the group and refuses another user's movement. Migration: in a throwaway database, sets of a completed workout get its time, sets of an open workout get the migration time, and none is planned. Unit: `count` accepts 1, 10 or no count, and refuses 0, 1.5 and 11; the groups keep the order of the list. The two migration tests now share one throwaway-database harness (`src/test/migrations/migration-test-database.ts`). E2E: "should show sets in the order they were added" now runs. Each guard was broken on purpose once to watch its test fail: the owner check of `setMuscleGroup`, the order, the Current Workout check of `setCompleted`, its "already in that state" answer, the backfill, and the completed-only filter of the groups.
 
 **Kept as it was, on purpose.** `complete` doesn't look at Planned Sets yet; completing a workout with no Completed Sets will ask what to do with the empty-workout dialog. The history table still counts every set and shows no groups until its rework.
+
+### Body weight on the Profile (assignment 1)
+
+**The problem.** Assignment 1: users record their body weight and see a chart of its history. The body weight also feeds assignment 2, where a body-weight set takes the latest one.
+
+**What changes.**
+
+- **A Profile page.** The "Logged in as" block at the bottom of the menu becomes the way in, and shows as active while the Profile is open. The Profile has one section for now, Body Weight, so it has no sidebar of its own.
+- **The Body Weight Chart.** One point per entry on a real time axis, from the first entry to today. A few weeks without an entry show as a gap, and recent days without an entry show as empty space on the right. With a single entry, the axis spans 14 days.
+- **One entry per date.** The form records a weight for a date, today by default. Picking a date that already has an entry says so before submitting, and the button reads "Replace". Entries can be deleted from the list, which shows eight at a time.
+
+**How.**
+
+- **A table, not a column on `User`.** A column holds one value, so every new weight would overwrite the last and leave nothing to chart. `BodyWeightEntry` keeps one row per user per date, with a unique `(userId, date)` index, so two quick submits can't both add a row. The Latest Body Weight is the row with the newest date, which that same index serves, so nothing caches a copy of it.
+- **The body-weight module** (`src/lib/body-weight/`, ADR 0010). It has four operations: `record` (an upsert on `(userId, date)`), `list` (newest first), `latest`, for the body-weight sets of assignment 2, and `remove` (another user's entry gets the same not-found as a missing one, ADR 0001). Dates go in and out as `"YYYY-MM-DD"` text (ADR 0004).
+- **No future dates, in the user's zone.** An entry dated tomorrow would become the Latest Body Weight and be copied into every new set until that day came (ADR 0003). The form and the server both compare the date with the user's today from the `tz` cookie. An earlier plan let the server allow UTC today plus one day, from before the server knew the zone, and ADR 0003 now records the stricter rule.
+- **One chart for the app.** `src/components/charts/time-chart.tsx` draws with `recharts`. It is the library the progression chart's plan already picked, so both charts look the same. The axis rules are pure functions in `time-axis.ts`. Recharts measures the DOM, so the chart renders in the browser only, inside a box the server already sizes, and nothing below it moves.
+- **TanStack Form** for the record form, its first use in the app. Field errors show next to the field, and a future date the server refuses shows there too, not in a toast.
+
+**Tests.** Integration: an entry comes back with its date as text and its weight as a number; recording the same date replaces it, keeping one entry; users don't see each other's entries; at 22:00 in São Paulo (already the next day in UTC), today is accepted and tomorrow refused; `latest` goes by date, not by order of recording; `remove` refuses another user's entry; deleting an entry leaves a Completed Set unchanged. Unit: the axis domain and ticks, the date and weight schemas, and the new date formats. E2E: the issue's "done when" through the UI (recorded today shows in the list, the Latest line and the chart; same date replaces; future date refused; delete; another user sees nothing), and the form's default date in two zones 26 hours apart, in the server HTML and the DOM, with no hydration error.
+
+**Also fixed.** The `Card` primitive drew its border in `currentColor`, the Tailwind v4 default, so every card in the app had a black outline instead of the hairline DESIGN.md describes. The design review of the Profile caught it, and the fix reaches every screen. And the starter's `<body>` had `overflow-hidden`, so a page taller than the window couldn't scroll; the Profile was the first one that tall. The signed-in shell is now exactly the window's height: the sidebar stays put, with the user block always in view, and only the page content scrolls.
+
+**Kept as it was, on purpose.** Phone layout and touch sizes come with the responsive layout work. Deleting an entry asks no confirmation, the same as removing a set.
