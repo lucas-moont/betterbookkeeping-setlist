@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import { getServerSidePrismaClient } from "@/lib/db.server";
 import { expectOk } from "@/test/expect-ok";
 import { createMovement, createUser } from "@/test/factories";
+import * as movements from "@/lib/movements";
 import * as workouts from "@/lib/workouts";
 
 // The workouts module tested through its interface against the real test database (ADR 0008).
@@ -32,7 +33,7 @@ describe("start", () => {
 
     const { workout } = expectOk(await workouts.start(db, user.id));
 
-    expect(await workouts.get(db, user.id)).toEqual({ id: workout.id, completedAt: null, sets: [] });
+    expect(await workouts.get(db, user.id)).toEqual({ id: workout.id, completedAt: null, sets: [], muscleGroups: [] });
   });
 
   test("after completing, starts a new empty Current Workout and keeps the old one in the history", async () => {
@@ -42,7 +43,7 @@ describe("start", () => {
     const { workout } = expectOk(await workouts.start(db, user.id));
 
     expect(workout.id).not.toBe(completed);
-    expect(await workouts.get(db, user.id)).toEqual({ id: workout.id, completedAt: null, sets: [] });
+    expect(await workouts.get(db, user.id)).toEqual({ id: workout.id, completedAt: null, sets: [], muscleGroups: [] });
     expect(await historyIds(user.id)).toEqual([completed]);
   });
 });
@@ -243,6 +244,51 @@ describe("setCompleted", () => {
   });
 });
 
+// A Workout's Muscle Groups are read from its Completed Sets' Movements, never stored (ADR 0011).
+describe("Muscle Groups", () => {
+  test("come from the Completed Sets' Movements, once each, in the order of the list", async () => {
+    const user = await createUser(db);
+    // Logged Legs first, then Chest: the result follows the list (Chest before Legs), not the log.
+    const squat = await createMovement(db, user.id, { name: "Squat", muscleGroup: "LEGS" });
+    const bench = await createMovement(db, user.id, { name: "Bench Press", muscleGroup: "CHEST" });
+    const incline = await createMovement(db, user.id, { name: "Incline Press", muscleGroup: "CHEST" });
+    await workouts.start(db, user.id);
+    await logSet(user.id, squat.id);
+    await logSet(user.id, bench.id);
+    await logSet(user.id, incline.id);
+
+    expect((await workouts.get(db, user.id))?.muscleGroups).toEqual(["CHEST", "LEGS"]);
+  });
+
+  test("leave out Planned Sets and Movements without a Muscle Group", async () => {
+    const user = await createUser(db);
+    const bench = await createMovement(db, user.id, { muscleGroup: "CHEST" });
+    const row = await createMovement(db, user.id, { name: "Row", muscleGroup: "BACK" });
+    const noGroup = await createMovement(db, user.id, { name: "Farmer Carry" });
+    await workouts.start(db, user.id);
+    await logSet(user.id, bench.id);
+    await logSet(user.id, noGroup.id);
+    const planned = await logSet(user.id, row.id);
+    expectOk(await workouts.setCompleted(db, user.id, planned.id, false));
+
+    expect((await workouts.get(db, user.id))?.muscleGroups).toEqual(["CHEST"]);
+    expectOk(await workouts.complete(db, user.id));
+    expect((await workouts.history(db, user.id))[0].muscleGroups).toEqual(["CHEST"]);
+  });
+
+  test("follow a Movement's new Muscle Group, in old Workouts too", async () => {
+    const user = await createUser(db);
+    const pullUp = await createMovement(db, user.id, { name: "Pull-up", muscleGroup: "ARMS" });
+    await workouts.start(db, user.id);
+    await logSet(user.id, pullUp.id);
+    expectOk(await workouts.complete(db, user.id));
+
+    expectOk(await movements.setMuscleGroup(db, user.id, pullUp.id, "BACK"));
+
+    expect((await workouts.history(db, user.id))[0].muscleGroups).toEqual(["BACK"]);
+  });
+});
+
 describe("removeSet", () => {
   test("removes only the given Set", async () => {
     const user = await createUser(db);
@@ -308,7 +354,7 @@ describe("complete", () => {
 
     expect(await workouts.get(db, user.id)).toBeNull();
     expect(await workouts.history(db, user.id)).toEqual([
-      { id: workout.id, completedAt: expect.any(Date), sets: [set] },
+      { id: workout.id, completedAt: expect.any(Date), sets: [set], muscleGroups: [] },
     ]);
   });
 

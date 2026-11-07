@@ -3,6 +3,7 @@ import type { Prisma } from "../../../prisma/generated/client/client";
 import type { DbClient } from "@/lib/db.server";
 import type { Result } from "@/lib/error-codes";
 import { ensureOwned, movementSelect, type Movement } from "@/lib/movements";
+import { muscleGroups, type MuscleGroup } from "@/lib/movements/muscle-group";
 import { load } from "@/lib/weight";
 import type { SetDraft } from "./set-draft";
 
@@ -20,9 +21,12 @@ export type WorkoutSet = {
   movement: Movement;
 };
 
-export type CurrentWorkout = { id: string; completedAt: null; sets: WorkoutSet[] };
+/** What every read of a Workout returns; the Current and Completed Workouts differ by completedAt. */
+type WorkoutContent = { id: string; sets: WorkoutSet[]; muscleGroups: MuscleGroup[] };
 
-export type CompletedWorkout = { id: string; completedAt: Date; sets: WorkoutSet[] };
+export type CurrentWorkout = WorkoutContent & { completedAt: null };
+
+export type CompletedWorkout = WorkoutContent & { completedAt: Date };
 
 // Only the columns the screens use, so user and foreign-key ids stay on the server.
 const workoutSelect = {
@@ -46,11 +50,28 @@ function toSet(row: SetRow): WorkoutSet {
   return { id: row.id, reps: row.reps, weight, load: load({ weight }), completed, movement: row.movement };
 }
 
+/**
+ * A Workout's Muscle Groups: those of its Completed Sets' Movements, once each, in the order of the
+ * list. Read every time, never stored, so they follow a Movement's Muscle Group (ADR 0011).
+ */
+function muscleGroupsOf(sets: WorkoutSet[]): MuscleGroup[] {
+  const trained = new Set(sets.filter((set) => set.completed).map((set) => set.movement.muscleGroup));
+  return muscleGroups.filter((group) => trained.has(group));
+}
+
+type WorkoutRow = Prisma.WorkoutGetPayload<{ select: typeof workoutSelect }>;
+
+// What get and history both build from a stored Workout; each adds its own completedAt.
+function toWorkout(row: WorkoutRow): WorkoutContent {
+  const sets = row.sets.map(toSet);
+  return { id: row.id, sets, muscleGroups: muscleGroupsOf(sets) };
+}
+
 /** Starts a new Current Workout for the user. */
 export const start = createServerOnlyFn(
   async (db: DbClient, userId: string): Promise<Result<{ workout: CurrentWorkout }, never>> => {
     const workout = await db.workout.create({ data: { userId }, select: { id: true } });
-    return { ok: true, workout: { id: workout.id, completedAt: null, sets: [] } };
+    return { ok: true, workout: { id: workout.id, completedAt: null, sets: [], muscleGroups: [] } };
   },
 );
 
@@ -81,8 +102,7 @@ export const get = createServerOnlyFn(async (db: DbClient, userId: string): Prom
     orderBy: newestFirst,
     select: workoutSelect,
   });
-  if (!workout) return null;
-  return { id: workout.id, completedAt: null, sets: workout.sets.map(toSet) };
+  return workout && { ...toWorkout(workout), completedAt: null };
 });
 
 /**
@@ -172,11 +192,7 @@ export const history = createServerOnlyFn(async (db: DbClient, userId: string): 
     select: workoutSelect,
   });
   // The where clause guarantees completedAt is set.
-  return completed.map((workout) => ({
-    id: workout.id,
-    completedAt: workout.completedAt as Date,
-    sets: workout.sets.map(toSet),
-  }));
+  return completed.map((workout) => ({ ...toWorkout(workout), completedAt: workout.completedAt as Date }));
 });
 
 /**
