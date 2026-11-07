@@ -183,7 +183,7 @@ A restrained palette: cool slate neutrals plus one warm accent.
 - **Inside cards:** 24px padding (`p-6`, content `pt-0` under a header), 16px between blocks (`space-y-4`), 8px between list rows (`space-y-2`).
 - **Inline forms:** a single row with 8px gaps (`flex gap-2`), number fields fixed at 96px (`w-24`).
 - **Auth screens:** a centered card, max 448px (`max-w-md`), on a slate-50 to slate-100 gradient.
-- **Responsive:** not designed yet. The sidebar is fixed width and forms don't wrap; the mobile layout is an open decision.
+- **Responsive (approved, not built yet):** below 768px (`md`), a fixed bottom tab bar replaces the sidebar. It has five items: Current Workout, History, Movements, Profile, and Log out. The active item gets a Hover Wash pill behind its icon. Log out is an action, so it never shows as active. The bar respects `env(safe-area-inset-bottom)`, and the page gets bottom padding to clear it. Inline forms stack, with the primary action full width at the end. Wide tables scroll sideways inside their card. Long button labels get a short form on phones, such as "Complete" for "Complete Workout". The desktop layout doesn't change.
 
 ## Elevation & Depth
 
@@ -226,6 +226,7 @@ Plain and dependable.
 - **Disabled:** 50% opacity on a gray-50 fill.
 - **Labels:** 14px 500-weight gray-700 above the field (auth forms) or an `aria-label` when the form is a single inline row.
 - **Cursor:** text fields keep the text cursor. Selects, checkboxes, radios, and labels tied to a field show the pointer.
+- **Touch size (approved, not built yet):** below 640px (`sm`), fields are 44px tall with 16px text (`h-11 text-base sm:h-10 sm:text-sm`). The 16px text also stops iOS from zooming in on focus. Buttons in forms and icon buttons in rows get the same 44px minimum on phones.
 
 ### List Rows
 
