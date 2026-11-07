@@ -6,8 +6,8 @@ export function uniqueToken() {
   return randomUUID().slice(0, 8);
 }
 
-/** A set as the Current Workout form takes it. */
-export type NewSet = { movement: string; weight: number; reps: number };
+/** A set as the Current Workout form takes it. `count` identical sets are added at once (1 by default). */
+export type NewSet = { movement: string; weight: number; reps: number; count?: number };
 
 /** Loads a page from the server and waits for hydration. Returns the server's response. */
 export async function openPage(page: Page, path: string) {
@@ -37,18 +37,28 @@ export async function startWorkout(page: Page) {
   await expect(page.getByRole("button", { name: "Complete Workout" })).toBeVisible();
 }
 
-/** Adds a set to the Current Workout, which must already be open on the page. */
+/** The Current Workout's Add button, which reads "Add" or "Add 3 sets", and nothing else that starts with Add. */
+export function addSetButton(page: Page) {
+  return page.getByRole("button", { name: /^Add( \d+ sets)?$/ });
+}
+
+/** The rows of one Movement's sets in the Current Workout, in the order they were added. */
+export function setRows(page: Page, movement: string) {
+  return page.getByRole("region", { name: movement, exact: true }).getByRole("listitem");
+}
+
+/** Adds a set (or `count` identical sets) to the Current Workout, which must already be open on the page. */
 export async function addSet(page: Page, set: NewSet) {
+  const count = set.count ?? 1;
+  const rows = setRows(page, set.movement);
+  const before = await rows.count();
   await page.getByLabel("Movement", { exact: true }).selectOption({ label: set.movement });
   await page.getByLabel("Weight").fill(String(set.weight));
   await page.getByLabel("Reps").fill(String(set.reps));
-  await page.getByRole("button", { name: "Add" }).click();
-  await expect(
-    page
-      .getByRole("listitem")
-      .filter({ hasText: set.movement })
-      .filter({ hasText: `${set.reps} reps × ${set.weight} lb` }),
-  ).toBeVisible();
+  await page.getByLabel("Number of sets").fill(String(count));
+  await addSetButton(page).click();
+  await expect(rows).toHaveCount(before + count);
+  await expect(rows.last()).toContainText(`${set.reps} reps × ${set.weight} lb`);
 }
 
 /** Completes the Current Workout, which must already be open on the page. */

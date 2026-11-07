@@ -12,6 +12,7 @@ import { movementsQueryOptions } from "@/lib/movements/queries";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useTimeZone } from "@/lib/time-zone";
+import { MuscleGroups } from "./-components/muscle-groups";
 import { SetForm } from "./-components/set-form";
 import { SetList } from "./-components/set-list";
 
@@ -51,6 +52,8 @@ function CurrentWorkoutPage() {
     );
   }
 
+  const hasHeader = workout.startedAt !== null || workout.muscleGroups.length > 0;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -62,15 +65,16 @@ function CurrentWorkoutPage() {
       </div>
 
       <Card>
-        {/* The day the workout started. One from before start times were recorded has none, and
-            no date is shown rather than a guessed one (ADR 0007). */}
-        {workout.startedAt && (
-          <CardHeader>
-            <CardTitle>{formatDate(workout.startedAt, timeZone, "long")}</CardTitle>
+        {hasHeader && (
+          <CardHeader className="space-y-3">
+            {/* The day the workout started. One from before start times were recorded has none, and
+                no date is shown rather than a guessed one (ADR 0007). */}
+            {workout.startedAt && <CardTitle>{formatDate(workout.startedAt, timeZone, "long")}</CardTitle>}
+            <MuscleGroups groups={workout.muscleGroups} />
           </CardHeader>
         )}
         {/* CardContent drops its top padding for the header above it; with no header, it keeps it. */}
-        <CardContent className={cn("space-y-4", !workout.startedAt && "pt-6")}>
+        <CardContent className={cn("space-y-4", !hasHeader && "pt-6")}>
           <SetForm movements={movements} />
           <SetList sets={workout.sets} />
         </CardContent>

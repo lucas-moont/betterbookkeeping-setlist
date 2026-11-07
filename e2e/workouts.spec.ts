@@ -5,6 +5,7 @@ import {
   createMovement,
   logCompletedWorkout,
   openPage,
+  setRows,
   startWorkout,
   uniqueToken,
 } from "./helpers";
@@ -91,7 +92,7 @@ test.describe("Workouts", () => {
       await openPage(page, "/current-workout");
 
       await expect(page.getByRole("button", { name: "Complete Workout" })).toBeVisible();
-      await expect(page.getByRole("listitem").filter({ hasText: movement })).toContainText("5 reps × 225 lb");
+      await expect(setRows(page, movement)).toHaveText(["Set 1 5 reps × 225 lb"]);
     });
 
     test("should show 'No active workout' when none exists", async ({ page }) => {
