@@ -14,8 +14,12 @@ _Avoid_: Exercise, lift
 A Movement where the load is the lifter's own body, such as pull-ups, push-ups, or dips. A user can turn this on or off at any time; the change only affects Sets logged afterwards.
 _Avoid_: Calisthenics, bodyweight exercise
 
+**Muscle Group**:
+The part of the body a Movement mainly trains, from a fixed list: Chest, Back, Shoulders, Arms, Legs, Abs, Lower Back. "Back" is the upper back; Abs and Lower Back are separate. A Movement has at most one, and may have none.
+_Avoid_: Body part, muscle tag
+
 **Workout**:
-One training session made of Sets.
+One training session made of Sets. Its Muscle Groups are those of the Movements of its Completed Sets, never picked by hand, so changing a Movement's Muscle Group changes every Workout that used it.
 _Avoid_: Session, training
 
 **Current Workout**:
@@ -27,12 +31,20 @@ A Workout the user has marked complete. It is part of the user's history and its
 _Avoid_: Finished workout, past workout
 
 **Gym Visit**:
-A Completed Workout with no Sets, kept because the user chose to record that they went to the gym. Completing an empty Current Workout always asks whether to save it as a Gym Visit or discard it.
+A Completed Workout with no Completed Sets, kept because the user chose to record that they went to the gym. It may still hold Planned Sets that were never done. Completing a Current Workout with no Completed Sets always asks whether to save it as a Gym Visit or discard it.
 _Avoid_: Empty workout, check-in, attendance
 
 **Set**:
-One Movement performed for a number of Reps at a Weight, inside a Workout.
+One Movement performed for a number of Reps at a Weight, inside a Workout. A Set is either a Planned Set or a Completed Set.
 _Avoid_: Entry, exercise
+
+**Planned Set**:
+A Set of a Workout that is not marked completed, because the lifter didn't do it (or hasn't yet). It counts toward nothing until it is completed again, and a Planned Set left in a Completed Workout stays in the history as not done.
+_Avoid_: Pending set, todo set
+
+**Completed Set**:
+A Set the user has done. Every Set is added completed. Only Completed Sets count toward Metrics, set counts and a Workout's Muscle Groups. While the Workout is the Current Workout, a Set can be switched between completed and planned.
+_Avoid_: Done set, finished set, logged set
 
 **Reps**:
 How many times the Movement was performed in a Set. Always at least one.
@@ -53,7 +65,7 @@ The Body Weight Entry with the most recent date. Every new Set of a Body-weight 
 _Avoid_: Current weight
 
 **Body Weight Snapshot**:
-The body weight copied into a Set of a Body-weight Movement when the Set is logged. Later Body Weight Entries do not change it.
+The body weight copied into a Set of a Body-weight Movement when the Set becomes a Completed Set. Later Body Weight Entries do not change it. A Planned Set has none and shows the Latest Body Weight instead.
 _Avoid_: Live body weight
 
 **Added Weight**:
@@ -75,7 +87,7 @@ A chart of one Metric for one Movement, with one point per Training Day.
 _Avoid_: Progress graph, stats
 
 **Metric**:
-A number computed from a Movement's Sets on a Training Day. There are three: Max Weight, Total Reps, and Total Volume.
+A number computed from a Movement's Completed Sets on a Training Day; Planned Sets never count. There are three: Max Weight, Total Reps, and Total Volume.
 
 **Max Weight**:
 The highest Load of any Set of the Movement on a Training Day.
