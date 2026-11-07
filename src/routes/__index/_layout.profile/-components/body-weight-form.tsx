@@ -63,10 +63,15 @@ export function BodyWeightForm({ entries, today, notice, onNotice }: BodyWeightF
   });
 
   const date = useStore(form.store, (state) => state.values.date);
-  const existing = entries.find((entry) => entry.date === date);
-  // Right after an action its confirmation wins: the form is back on today, which may be the date just
-  // recorded, and that must not read as a warning. The notice clears once the user edits a field.
-  const willReplace = !notice && existing !== undefined;
+  const weight = useStore(form.store, (state) => state.values.weight);
+  const dateChanged = useStore(form.store, (state) => state.fieldMeta.date?.isDirty ?? false);
+  // The replace notice waits until the user starts an entry (types a weight or picks a date): opening
+  // the Profile on a day that already has an entry is normal, not something to warn about. Right after an
+  // action its confirmation wins, because the form is back on today, which may be the date just
+  // recorded. Editing a field clears the confirmation.
+  const startedEntry = weight.trim() !== "" || dateChanged;
+  const existing = !notice && startedEntry ? entries.find((entry) => entry.date === date) : undefined;
+  const willReplace = existing !== undefined;
 
   // Field errors show under the whole row, where the notices also go, so a long message never wraps
   // inside a narrow field's column. An error waits until its field was touched (or a submit tried).
@@ -142,7 +147,7 @@ export function BodyWeightForm({ entries, today, notice, onNotice }: BodyWeightF
                     onBlur={field.handleBlur}
                     className={cn("pr-9 tabular-nums", error && "border-red-300")}
                   />
-                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-500">
                     {weightUnit}
                   </span>
                 </div>
