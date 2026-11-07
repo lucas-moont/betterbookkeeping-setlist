@@ -2,7 +2,7 @@ import { createServerOnlyFn } from "@tanstack/react-start";
 import type { Prisma } from "../../../prisma/generated/client/client";
 import type { DbClient } from "@/lib/db.server";
 import type { Result } from "@/lib/error-codes";
-import { ensureOwned } from "@/lib/movements";
+import { ensureOwned, movementSelect, type Movement } from "@/lib/movements";
 import { load } from "@/lib/weight";
 import type { SetDraft } from "./set-draft";
 
@@ -15,7 +15,7 @@ export type WorkoutSet = {
   reps: number;
   weight: number;
   load: number;
-  movement: { id: string; name: string };
+  movement: Movement;
 };
 
 export type CurrentWorkout = { id: string; completedAt: null; sets: WorkoutSet[] };
@@ -26,7 +26,7 @@ export type CompletedWorkout = { id: string; completedAt: Date; sets: WorkoutSet
 const workoutSelect = {
   id: true,
   completedAt: true,
-  sets: { select: { id: true, reps: true, weight: true, movement: { select: { id: true, name: true } } } },
+  sets: { select: { id: true, reps: true, weight: true, movement: { select: movementSelect } } },
 } as const;
 
 type SetRow = Prisma.SetGetPayload<{ select: typeof workoutSelect.sets.select }>;

@@ -36,7 +36,7 @@ function MovementsPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSubmit) return;
-    createMovementMutation.mutate(name);
+    createMovementMutation.mutate({ name });
   };
 
   return (
