@@ -37,3 +37,11 @@ export async function createMovement(
   const unique = `${name} ${crypto.randomUUID().slice(0, 8)}`;
   return expectOk(await movements.create(db, userId, { name: unique, muscleGroup })).movement;
 }
+
+/**
+ * Creates a Current Workout the way they were before Workout.startedAt existed: with none, which
+ * the code reads as "unknown" (ADR 0007). New Workouts only come from workouts.start.
+ */
+export async function createLegacyWorkout(db: DbClient, userId: string) {
+  return db.workout.create({ data: { userId }, select: { id: true } });
+}

@@ -1,7 +1,10 @@
 import { describe, expect, test } from "vitest";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { PrismaClient } from "../../../prisma/generated/client/client";
 import { getServerSidePrismaClient } from "@/lib/db.server";
 import { expectOk } from "@/test/expect-ok";
-import { createMovement, createUser } from "@/test/factories";
+import { createLegacyWorkout, createMovement, createUser } from "@/test/factories";
+import { testDatabaseUrl } from "@/test/test-database-url";
 import * as movements from "@/lib/movements";
 import * as workouts from "@/lib/workouts";
 
@@ -25,6 +28,16 @@ describe("get", () => {
 
     expect(await workouts.get(db, otherUser.id)).toBeNull();
   });
+
+  test("returns a Current Workout from before start times were recorded with no startedAt", async () => {
+    const user = await createUser(db);
+    const legacy = await createLegacyWorkout(db, user.id);
+
+    const current = await workouts.get(db, user.id);
+
+    expect(current?.id).toBe(legacy.id);
+    expect(current?.startedAt).toBeNull();
+  });
 });
 
 describe("start", () => {
@@ -33,7 +46,85 @@ describe("start", () => {
 
     const { workout } = expectOk(await workouts.start(db, user.id));
 
-    expect(await workouts.get(db, user.id)).toEqual({ id: workout.id, completedAt: null, sets: [], muscleGroups: [] });
+    expect(await workouts.get(db, user.id)).toEqual({
+      id: workout.id,
+      startedAt: workout.startedAt,
+      completedAt: null,
+      sets: [],
+      muscleGroups: [],
+    });
+  });
+
+  test("records when the Current Workout started", async () => {
+    const user = await createUser(db);
+    const before = Date.now();
+
+    expectOk(await workouts.start(db, user.id));
+
+    const startedAt = (await workouts.get(db, user.id))?.startedAt;
+    expect(startedAt).toBeInstanceOf(Date);
+    expect(startedAt!.getTime()).toBeGreaterThanOrEqual(before);
+    expect(startedAt!.getTime()).toBeLessThanOrEqual(Date.now());
+  });
+
+  test("with a Current Workout already open, returns it with its Sets and starts no other", async () => {
+    const user = await createUser(db);
+    const movement = await createMovement(db, user.id);
+    const { workout: first } = expectOk(await workouts.start(db, user.id));
+    const set = await logSet(user.id, movement.id);
+
+    const { workout: again } = expectOk(await workouts.start(db, user.id));
+
+    expect(again.id).toBe(first.id);
+    expect(again.startedAt).toEqual(first.startedAt);
+    expect(again.sets.map((s) => s.id)).toEqual([set.id]);
+    expect(again).toEqual(await workouts.get(db, user.id));
+    // There was only one: completing it leaves no Current Workout behind.
+    expectOk(await workouts.complete(db, user.id));
+    expect(await workouts.get(db, user.id)).toBeNull();
+  });
+
+  // A double click on "Start Workout", or two server instances. Each start gets its own client: one
+  // client runs its queries one after another, so the starts would never overlap. Also guards the
+  // partial index of ADR 0006: the test database gets every migration, so one that ever drops the
+  // index turns this red.
+  test("concurrent starts start one Current Workout", async () => {
+    const clients = Array.from(
+      { length: 5 },
+      () => new PrismaClient({ adapter: new PrismaPg({ connectionString: testDatabaseUrl }) }),
+    );
+    try {
+      // Three rounds, so a start that can race has three chances to show it.
+      for (let round = 0; round < 3; round++) {
+        const user = await createUser(db);
+
+        const results = await Promise.all(clients.map((client) => workouts.start(client, user.id)));
+
+        expect(new Set(results.map((result) => expectOk(result).workout.id)).size).toBe(1);
+        expectOk(await workouts.complete(db, user.id));
+        expect(await workouts.get(db, user.id)).toBeNull();
+      }
+    } finally {
+      await Promise.all(clients.map((client) => client.$disconnect()));
+    }
+  });
+
+  test("starting again inside a transaction leaves the transaction usable", async () => {
+    const user = await createUser(db);
+    const movement = await createMovement(db, user.id);
+
+    const workoutId = await db.$transaction(async (tx) => {
+      const first = expectOk(await workouts.start(tx, user.id)).workout;
+      const again = expectOk(await workouts.start(tx, user.id)).workout;
+      expect(again.id).toBe(first.id);
+      // A statement after the second start still runs, so Postgres didn't abort the transaction.
+      expectOk(await workouts.addSet(tx, user.id, { movementId: movement.id, reps: 5, weight: 100 }));
+      return first.id;
+    });
+
+    const current = await workouts.get(db, user.id);
+    expect(current?.id).toBe(workoutId);
+    expect(current?.sets).toHaveLength(1);
   });
 
   test("after completing, starts a new empty Current Workout and keeps the old one in the history", async () => {
@@ -43,7 +134,13 @@ describe("start", () => {
     const { workout } = expectOk(await workouts.start(db, user.id));
 
     expect(workout.id).not.toBe(completed);
-    expect(await workouts.get(db, user.id)).toEqual({ id: workout.id, completedAt: null, sets: [], muscleGroups: [] });
+    expect(await workouts.get(db, user.id)).toEqual({
+      id: workout.id,
+      startedAt: workout.startedAt,
+      completedAt: null,
+      sets: [],
+      muscleGroups: [],
+    });
     expect(await historyIds(user.id)).toEqual([completed]);
   });
 });
@@ -354,7 +451,7 @@ describe("complete", () => {
 
     expect(await workouts.get(db, user.id)).toBeNull();
     expect(await workouts.history(db, user.id)).toEqual([
-      { id: workout.id, completedAt: expect.any(Date), sets: [set], muscleGroups: [] },
+      { id: workout.id, startedAt: workout.startedAt, completedAt: expect.any(Date), sets: [set], muscleGroups: [] },
     ]);
   });
 
