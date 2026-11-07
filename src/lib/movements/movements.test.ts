@@ -3,6 +3,7 @@ import { getServerSidePrismaClient } from "@/lib/db.server";
 import { expectOk } from "@/test/expect-ok";
 import { createUser } from "@/test/factories";
 import * as movements from "@/lib/movements";
+import * as workouts from "@/lib/workouts";
 
 // The movements module tested through its interface against the real test database (ADR 0008).
 // Every test creates its own users, so fixed names never clash with other tests (ADR 0001).
@@ -108,6 +109,118 @@ describe("list", () => {
     const user = await createUser(db);
 
     expect(await movements.list(db, user.id)).toEqual([]);
+  });
+});
+
+describe("update", () => {
+  test("renames the Movement, and the new name shows in the list and in its Sets", async () => {
+    const user = await createUser(db);
+    const { movement } = expectOk(await movements.create(db, user.id, { name: "Pullup" }));
+    await workouts.start(db, user.id);
+    expectOk(await workouts.addSet(db, user.id, { movementId: movement.id, reps: 8, weight: 0 }));
+
+    const result = await movements.update(db, user.id, movement.id, { name: "  Pull-up " });
+
+    const renamed = { ...movement, name: "Pull-up" };
+    expect(result).toEqual({ ok: true, movement: renamed });
+    expect(await movements.list(db, user.id)).toEqual([renamed]);
+    expect((await workouts.get(db, user.id))?.sets.map((set) => set.movement)).toEqual([renamed]);
+  });
+
+  test("returns movement-name-taken for the name of another of the user's Movements, in another case, and changes nothing", async () => {
+    const user = await createUser(db);
+    const { movement: bench } = expectOk(await movements.create(db, user.id, { name: "Bench Press" }));
+    const { movement: squat } = expectOk(await movements.create(db, user.id, { name: "Squat" }));
+
+    const result = await movements.update(db, user.id, squat.id, { name: " BENCH PRESS ", isBodyWeight: true });
+
+    expect(result).toEqual({ ok: false, reason: "movement-name-taken" });
+    expect(await movements.list(db, user.id)).toEqual([bench, squat]);
+  });
+
+  test("lets a Movement change only the case of its own name", async () => {
+    const user = await createUser(db);
+    const { movement } = expectOk(await movements.create(db, user.id, { name: "bench press" }));
+
+    const result = await movements.update(db, user.id, movement.id, { name: "Bench Press" });
+
+    expect(result).toEqual({ ok: true, movement: { ...movement, name: "Bench Press" } });
+  });
+
+  test("allows a name another user already has", async () => {
+    const user = await createUser(db);
+    const otherUser = await createUser(db);
+    expectOk(await movements.create(db, otherUser.id, { name: "Dips" }));
+    const { movement } = expectOk(await movements.create(db, user.id, { name: "Dip" }));
+
+    expectOk(await movements.update(db, user.id, movement.id, { name: "Dips" }));
+  });
+
+  test("returns movement-not-found for another user's Movement, the same as for one that doesn't exist, and leaves it as it was", async () => {
+    const owner = await createUser(db);
+    const otherUser = await createUser(db);
+    const { movement } = expectOk(await movements.create(db, owner.id, { name: "Squat", muscleGroup: "LEGS" }));
+    const changes = { name: "Hacked", isBodyWeight: true, muscleGroup: null };
+
+    const forOthersMovement = await movements.update(db, otherUser.id, movement.id, changes);
+
+    expect(forOthersMovement).toEqual({ ok: false, reason: "movement-not-found" });
+    expect(forOthersMovement).toEqual(await movements.update(db, otherUser.id, crypto.randomUUID(), changes));
+    expect(await movements.list(db, owner.id)).toEqual([movement]);
+    expect(await movements.list(db, otherUser.id)).toEqual([]);
+  });
+
+  test("changes the name, the flag and the Muscle Group at once", async () => {
+    const user = await createUser(db);
+    const { movement } = expectOk(await movements.create(db, user.id, { name: "Pullup" }));
+
+    const result = await movements.update(db, user.id, movement.id, {
+      name: "Pull-up",
+      isBodyWeight: true,
+      muscleGroup: "BACK",
+    });
+
+    const changed = { id: movement.id, name: "Pull-up", isBodyWeight: true, muscleGroup: "BACK" };
+    expect(result).toEqual({ ok: true, movement: changed });
+    expect(await movements.list(db, user.id)).toEqual([changed]);
+  });
+
+  test("leaves out of the change whatever it isn't given", async () => {
+    const user = await createUser(db);
+    const { movement } = expectOk(
+      await movements.create(db, user.id, { name: "Pull-up", muscleGroup: "BACK", isBodyWeight: true }),
+    );
+
+    expectOk(await movements.update(db, user.id, movement.id, { isBodyWeight: false }));
+    expect(await movements.list(db, user.id)).toEqual([{ ...movement, isBodyWeight: false }]);
+
+    expectOk(await movements.update(db, user.id, movement.id, { muscleGroup: null }));
+    expect(await movements.list(db, user.id)).toEqual([{ ...movement, isBodyWeight: false, muscleGroup: null }]);
+  });
+
+  // ADR 0003: Load never reads the flag, so turning it off leaves every Set as it was logged.
+  test("turning the body-weight flag off leaves every Set already logged as it was", async () => {
+    const user = await createUser(db);
+    const { movement } = expectOk(await movements.create(db, user.id, { name: "Pull-up", isBodyWeight: true }));
+    await workouts.start(db, user.id);
+    expectOk(await workouts.addSet(db, user.id, { movementId: movement.id, reps: 8, weight: 172.4 }));
+    expectOk(await workouts.complete(db, user.id));
+    await workouts.start(db, user.id);
+    expectOk(await workouts.addSet(db, user.id, { movementId: movement.id, reps: 6, weight: 172.4 }));
+    const logged = (sets: workouts.WorkoutSet[]) =>
+      sets.map(({ id, reps, weight, load, completed }) => ({ id, reps, weight, load, completed }));
+    const before = {
+      completed: logged((await workouts.history(db, user.id))[0].sets),
+      current: logged((await workouts.get(db, user.id))!.sets),
+    };
+
+    expectOk(await movements.update(db, user.id, movement.id, { isBodyWeight: false }));
+
+    expect(logged((await workouts.history(db, user.id))[0].sets)).toEqual(before.completed);
+    expect(logged((await workouts.get(db, user.id))!.sets)).toEqual(before.current);
+    expect(before.completed).toEqual([
+      { id: expect.any(String), reps: 8, weight: 172.4, load: 172.4, completed: true },
+    ]);
   });
 });
 
