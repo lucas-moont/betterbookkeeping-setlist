@@ -32,10 +32,10 @@ export async function createUser(db: DbClient, { password }: { password?: string
 export async function createMovement(
   db: DbClient,
   userId: string,
-  { name = "Bench Press", muscleGroup = null }: Partial<NewMovement> = {},
+  { name = "Bench Press", muscleGroup = null, isBodyWeight = false }: Partial<NewMovement> = {},
 ) {
   const unique = `${name} ${crypto.randomUUID().slice(0, 8)}`;
-  return expectOk(await movements.create(db, userId, { name: unique, muscleGroup })).movement;
+  return expectOk(await movements.create(db, userId, { name: unique, muscleGroup, isBodyWeight })).movement;
 }
 
 /**
