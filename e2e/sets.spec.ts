@@ -199,6 +199,68 @@ test.describe("Sets", () => {
     });
   });
 
+  test.describe("complete", () => {
+    test("should mark every added set as completed", async ({ page }) => {
+      const movement = `Bench Press ${uniqueToken()}`;
+      await createMovement(page, movement);
+      await startWorkout(page);
+
+      await addSet(page, { movement, weight: 185, reps: 6, count: 2 });
+
+      const circles = setRows(page, movement).getByRole("checkbox");
+      await expect(circles).toHaveCount(2);
+      await expect(circles.nth(0)).toHaveAccessibleName(`Completed: ${movement}, set 1, 185 lb × 6`);
+      await expect(circles.nth(1)).toHaveAccessibleName(`Completed: ${movement}, set 2, 185 lb × 6`);
+      await expect(setRows(page, movement).getByRole("checkbox", { checked: true })).toHaveCount(2);
+    });
+
+    test("should unmark a set the lifter didn't do, and mark it again", async ({ page }) => {
+      const movement = `Bench Press ${uniqueToken()}`;
+      await createMovement(page, movement);
+      await startWorkout(page);
+      await addSet(page, { movement, weight: 185, reps: 6, count: 3 });
+      const rows = setRows(page, movement);
+      const section = page.getByRole("region", { name: movement, exact: true });
+      const progress = section.getByRole("progressbar", { name: `${movement} sets completed` });
+      const second = page.getByRole("checkbox", { name: `Completed: ${movement}, set 2, 185 lb × 6` });
+
+      await second.click();
+
+      await expect(second).toHaveAttribute("aria-checked", "false");
+      await expect(section).toContainText("2 of 3 completed");
+      await expect(progress).toHaveAttribute("aria-valuenow", "2");
+      // A Planned Set looks unfinished: a dashed outline instead of the grey fill.
+      await expect(rows.nth(1)).toHaveCSS("border-top-style", "dashed");
+      await expect(rows.nth(0)).not.toHaveCSS("border-top-style", "dashed");
+      // The row stays where it was.
+      await expect(rows.nth(1).getByRole("checkbox")).toHaveAttribute("aria-checked", "false");
+
+      // Saved, not only shown.
+      await openPage(page, "/current-workout");
+      await expect(second).toHaveAttribute("aria-checked", "false");
+      await expect(section).toContainText("2 of 3 completed");
+
+      await second.click();
+
+      await expect(second).toHaveAttribute("aria-checked", "true");
+      await expect(section).toContainText("3 of 3 completed");
+      await expect(rows.nth(1)).not.toHaveCSS("border-top-style", "dashed");
+    });
+
+    test("should drop a muscle group once none of its sets is completed", async ({ page }) => {
+      const movement = `Bench Press ${uniqueToken()}`;
+      await createMovement(page, movement, { muscleGroup: "Chest" });
+      await startWorkout(page);
+      await addSet(page, { movement, weight: 185, reps: 6 });
+      const muscleGroups = page.getByRole("list", { name: "Muscle groups" });
+      await expect(muscleGroups.getByRole("listitem")).toHaveText(["Chest"]);
+
+      await page.getByRole("checkbox", { name: `Completed: ${movement}, set 1, 185 lb × 6` }).click();
+
+      await expect(muscleGroups).toBeHidden();
+    });
+  });
+
   test.describe("delete", () => {
     test("should remove a set from the current workout", async ({ page }) => {
       const movement = `Dips ${uniqueToken()}`;

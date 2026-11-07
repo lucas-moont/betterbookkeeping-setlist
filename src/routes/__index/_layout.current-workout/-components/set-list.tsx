@@ -1,10 +1,11 @@
 import { useId } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { X } from "lucide-react";
+import { Circle, CircleCheck, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatWeight } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import type { WorkoutSet } from "@/lib/workouts";
-import { removeSetMutationOptions } from "@/lib/workouts/queries";
+import { removeSetMutationOptions, setCompletedMutationOptions } from "@/lib/workouts/queries";
 import { groupSetsByMovement, type MovementSets } from "./group-sets";
 
 /** The sets of the Current Workout, one section per Movement, in the order they were added. */
@@ -51,20 +52,44 @@ function MovementSection({ group }: { group: MovementSets }) {
       </div>
       <ul className="space-y-1">
         {sets.map((set, index) => (
-          <SetRow key={set.id} set={set} number={index + 1} />
+          <SetRow key={set.id} set={set} number={index + 1} movementName={movement.name} />
         ))}
       </ul>
     </section>
   );
 }
 
-/** One set: its number within the Movement, Reps and Weight, and the button that removes it. */
-function SetRow({ set, number }: { set: WorkoutSet; number: number }) {
+/**
+ * One set: the circle that marks it completed or planned, its number within the Movement, Reps and
+ * Weight, and the button that removes it. A Planned Set has a dashed outline and greyed text.
+ */
+function SetRow({ set, number, movementName }: { set: WorkoutSet; number: number; movementName: string }) {
   const removeSetMutation = useMutation(removeSetMutationOptions());
+  const setCompletedMutation = useMutation(setCompletedMutationOptions());
+  // The mutation stays pending until the workout has refetched, so the circle shows the state it
+  // sent in the meantime instead of jumping back.
+  const completed = setCompletedMutation.isPending ? setCompletedMutation.variables.completed : set.completed;
 
   return (
-    <li className="flex min-h-11 items-center gap-1 rounded-lg border border-transparent bg-slate-50 py-0.5 pl-3 pr-1 text-sm sm:min-h-9">
-      <span className="min-w-0 flex-1 tabular-nums text-slate-700">
+    <li
+      className={cn(
+        "flex min-h-11 items-center gap-1 rounded-lg border py-0.5 pr-1 text-sm sm:min-h-9",
+        completed ? "border-transparent bg-slate-50" : "border-dashed border-slate-300 bg-white",
+      )}>
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={completed}
+        aria-label={`Completed: ${movementName}, set ${number}, ${formatWeight(set.load)} × ${set.reps}`}
+        onClick={() => setCompletedMutation.mutate({ setId: set.id, completed: !completed })}
+        className={cn(
+          "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition-colors sm:h-9 sm:w-9",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
+          completed ? "text-primary hover:bg-primary/5" : "text-slate-400 hover:bg-slate-100 hover:text-slate-700",
+        )}>
+        {completed ? <CircleCheck className="h-5 w-5" /> : <Circle className="h-5 w-5" />}
+      </button>
+      <span className={cn("min-w-0 flex-1 tabular-nums", completed ? "text-slate-700" : "text-slate-400")}>
         <span className="mr-1 text-slate-400">Set {number}</span>{" "}
         {set.reps} reps × {formatWeight(set.weight)}
       </span>
