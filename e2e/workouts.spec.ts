@@ -55,6 +55,30 @@ test.describe("Workouts", () => {
       await expect(cardDate).toHaveText(startDay!);
     });
 
+    test("should start a single workout on a double click", async ({ page }) => {
+      await openPage(page, "/current-workout");
+      // Server-function calls that change data are POSTs; on this page, only the two starts are.
+      let startsAnswered = 0;
+      page.on("response", (response) => {
+        if (response.request().method() === "POST" && response.url().includes("/_serverFn/")) startsAnswered++;
+      });
+
+      await page.getByRole("button", { name: "Start Workout" }).dblclick();
+      await expect(page.getByRole("button", { name: "Complete Workout" })).toBeVisible();
+
+      // The second start got the same workout, not a refusal. Any refused mutation shows a toast
+      // (role "alert") right after its answer arrives, whatever its message, so wait for both
+      // answers and give a toast a moment to appear. Counted once, not with toHaveCount(0): that
+      // one retries, and would pass once the toast closes by itself.
+      await expect.poll(() => startsAnswered).toBe(2);
+      await page.waitForTimeout(1000);
+      expect(await page.getByRole("alert").count()).toBe(0);
+      await completeWorkout(page);
+
+      // A second workout from the second click would now be the Current Workout.
+      await openPage(page, "/current-workout");
+      await expect(page.getByText("No active workout")).toBeVisible();
+    });
   });
 
   test.describe("read", () => {
