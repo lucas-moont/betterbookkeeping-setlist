@@ -179,12 +179,11 @@ Code that looks important but that nothing calls slows down anyone reading the p
 
 ### End-to-end tests
 
-The skipped cases in `e2e/movements.spec.ts`, `e2e/sets.spec.ts` and `e2e/workouts.spec.ts` now run, apart from two that wait for data the app doesn't store yet:
+The skipped cases in `e2e/movements.spec.ts`, `e2e/sets.spec.ts` and `e2e/workouts.spec.ts` now run, apart from one that waits for data the app doesn't store yet:
 
-- "should show sets in the order they were added" needs a creation time on each set. Today sets have no defined order.
-- "should show the workout date after starting" needs the workout's start time. Today the card shows today's date, so the test would pass without proving anything.
+- "should show the workout date after starting" needs the workout's start time. Today the card shows today's date, so the test would pass without proving anything. It stays skipped and turns on once `Workout.startedAt` exists (ADR 0007).
 
-Both stay skipped and turn on once those timestamps exist (ADR 0007).
+"should show sets in the order they were added" was the second one. It runs since sets record when they were added (see "Planned and completed sets" below).
 
 How the suite is built, and why:
 
@@ -285,3 +284,28 @@ Each workout server function used to do everything itself: validate the input, r
 **Tests.** Unit: 01:00 UTC is Nov 6 in São Paulo and Nov 7 in UTC; today in São Paulo at 22:00 is "2026-11-06"; "2026-11-06" stays Nov 6 under São Paulo and Kiritimati process zones; `formatWeight` rounds `150.1 + 2.2` to "152.3 lb"; bad cookies such as "Mars/Olympus" or broken percent-encoding fall back to UTC. E2E, in two browsers set to Pacific/Kiritimati (UTC+14) and Etc/GMT+12 (UTC-12), which are never on the same date: the Current Workout title and the history date match the browser's day, the server's HTML has the same text, and React reports no hydration error. A first visit without the cookie renders UTC and then corrects itself. Formatting the title with the server's zone, ignoring the cookie on the server, or dropping the re-render each turned a test red.
 
 **Kept as it was, on purpose.** The interface stays in English, with the locale written once in `src/lib/format.ts`; translating it (for example with `use-intl`) is out of scope. The history's per-movement maximum still reads `weight`; it switches to Load with body-weight sets.
+
+### Planned and completed sets, and a muscle group on each movement (back end)
+
+**The problem.** A set only existed once it was done, so the history couldn't say whether a set the lifter meant to do was skipped. And nothing said what a workout trained: there was no way to tell a chest day from a leg day. Neither is one of the assignments, but both change the data the assignments build on, so they land first, in the back end only (ADR 0011). The screens arrive with the Movements page, Current Workout and Workout History reworks.
+
+**What changes.**
+
+- **A set is completed or planned.** Every set is still added completed, as "log every set as you go" describes, so logging stays one step and nothing on screen changes. A set can then be un-completed (a Planned Set) and completed again, only while its workout is the Current Workout. A Planned Set left in a Completed Workout stays in the history as not done. Only Completed Sets count toward metrics, set counts and a workout's muscle groups.
+- **Several identical sets at once.** `addSet` takes a `count` from 1 to 10 (one by default) and adds them in one `INSERT`, so either all of them get in or none.
+- **Sets keep their order.** They are listed in the order they were added, so tapping a set's circle can't make it jump in the list.
+- **A Muscle Group on each movement.** One optional group from a fixed list: Chest, Back, Shoulders, Arms, Legs, Abs, Lower Back. Existing movements start without one.
+- **A workout's muscle groups are derived, never picked.** They are the groups of the movements of its Completed Sets, once each, in the order of the list. Changing a movement's group changes every workout that used it, old ones included.
+
+**How.**
+
+- **Schema.** `Set.completedAt` (`NULL` is a Planned Set), `Set.createdAt`, and `Movement.muscleGroup`, a Postgres enum. Three migrations, one per change. The `completedAt` one is written by hand: it backfills every existing set with its workout's `completedAt`, or with the migration time for a workout still open, so no set becomes planned. On the local database, all 880 sets came out completed (386 with their workout's time, 494 of open workouts), and none planned.
+- **A timestamp, not a boolean.** `completedAt` records when the set was done at no extra cost (ADR 0011). Only the server sees it; the module returns `completed: boolean`.
+- **Order.** Sets are read by `createdAt`, then `id` (ADR 0007). `createdAt` arrived ahead of the rest of ADR 0007 because un-completing a set is an `UPDATE`, and Postgres can return an updated row in another position. Legacy sets got the migration time, so their order is only stable, and sets added in one request share a moment and fall back to `id`.
+- **The workouts module.** `setCompleted(db, userId, setId, completed)` changes a set only in the user's own Current Workout. A set of a Completed Workout, of another user, or an id that doesn't exist all get the same `set-not-found`, like `removeSet`. A set already in that state is left alone, so a double click keeps the time it was completed. `get` and `history` return `muscleGroups`, computed in TypeScript from the rows they already load, so no query is added.
+- **The movements module.** `create(db, userId, { name, muscleGroup? })`, and `setMuscleGroup(db, userId, movementId, muscleGroup | null)` for the owner only (ADR 0001). The list of groups comes straight from the enum Prisma generates (`prisma/generated/client/enums.ts`, which has no server code), through `src/lib/movements/muscle-group.ts`, and a test pins its order, which is the order a workout's groups come out in.
+- **Ready for the screens.** Server functions validate ids as UUIDs and the group with the shared `muscleGroupSchema`. `setCompletedMutationOptions` refreshes the Current Workout; `setMuscleGroupMutationOptions` refreshes the movements and every workout, because their groups follow the movement.
+
+**Tests.** Integration: a set is added completed; `count` adds identical sets; un-completing and completing again; a set already in that state is ok and unchanged; the list order survives toggling; a set of a Completed Workout or of another user is refused and left as it was; a Planned Set stays not done in the history; a workout's groups skip Planned Sets and movements without a group, don't repeat and follow the list order; changing a movement's group changes an old workout's groups; `setMuscleGroup` changes and clears the group and refuses another user's movement. Migration: in a throwaway database, sets of a completed workout get its time, sets of an open workout get the migration time, and none is planned. Unit: `count` accepts 1, 10 or no count, and refuses 0, 1.5 and 11; the groups keep the order of the list. The two migration tests now share one throwaway-database harness (`src/test/migrations/migration-test-database.ts`). E2E: "should show sets in the order they were added" now runs. Each guard was broken on purpose once to watch its test fail: the owner check of `setMuscleGroup`, the order, the Current Workout check of `setCompleted`, its "already in that state" answer, the backfill, and the completed-only filter of the groups.
+
+**Kept as it was, on purpose.** `complete` doesn't look at Planned Sets yet; completing a workout with no Completed Sets will ask what to do with the empty-workout dialog. The history table still counts every set and shows no groups until its rework.
