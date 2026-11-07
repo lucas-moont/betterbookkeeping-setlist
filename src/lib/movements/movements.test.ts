@@ -117,7 +117,7 @@ describe("update", () => {
     const user = await createUser(db);
     const { movement } = expectOk(await movements.create(db, user.id, { name: "Pullup" }));
     await workouts.start(db, user.id);
-    expectOk(await workouts.addSet(db, user.id, { movementId: movement.id, reps: 8, weight: 0 }));
+    expectOk(await workouts.addSet(db, user.id, { movementId: movement.id, reps: 8, weight: 0 }, "UTC"));
 
     const result = await movements.update(db, user.id, movement.id, { name: "  Pull-up " });
 
@@ -203,10 +203,10 @@ describe("update", () => {
     const user = await createUser(db);
     const { movement } = expectOk(await movements.create(db, user.id, { name: "Pull-up", isBodyWeight: true }));
     await workouts.start(db, user.id);
-    expectOk(await workouts.addSet(db, user.id, { movementId: movement.id, reps: 8, weight: 172.4 }));
+    expectOk(await workouts.addSet(db, user.id, { movementId: movement.id, reps: 8, weight: 172.4 }, "UTC"));
     expectOk(await workouts.complete(db, user.id));
     await workouts.start(db, user.id);
-    expectOk(await workouts.addSet(db, user.id, { movementId: movement.id, reps: 6, weight: 172.4 }));
+    expectOk(await workouts.addSet(db, user.id, { movementId: movement.id, reps: 6, weight: 172.4 }, "UTC"));
     const logged = (sets: workouts.WorkoutSet[]) =>
       sets.map(({ id, reps, weight, load, completed }) => ({ id, reps, weight, load, completed }));
     const before = {
@@ -253,11 +253,11 @@ describe("setMuscleGroup", () => {
 });
 
 describe("ensureOwned", () => {
-  test("is ok for the user's own Movement", async () => {
+  test("returns the user's own Movement", async () => {
     const user = await createUser(db);
-    const { movement } = expectOk(await movements.create(db, user.id, { name: "Bench Press" }));
+    const { movement } = expectOk(await movements.create(db, user.id, { name: "Pull-up", isBodyWeight: true }));
 
-    expect(await movements.ensureOwned(db, user.id, movement.id)).toEqual({ ok: true });
+    expect(await movements.ensureOwned(db, user.id, movement.id)).toEqual({ ok: true, movement });
   });
 
   test("returns movement-not-found for another user's Movement, the same as for one that doesn't exist", async () => {

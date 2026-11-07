@@ -8,6 +8,9 @@ export const errorMessages = {
   "movement-not-found": "Movement not found",
   "body-weight-date-in-future": "The date can't be in the future",
   "body-weight-entry-not-found": "Body weight entry not found",
+  "body-weight-required": "Enter your body weight above 0",
+  "added-weight-not-allowed": "Only body-weight movements take an added weight",
+  "assistance-exceeds-body-weight": "Assistance can't be more than your body weight",
 } as const;
 
 export type ErrorCode = keyof typeof errorMessages;

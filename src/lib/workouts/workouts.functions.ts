@@ -3,6 +3,7 @@ import { getServerSidePrismaClient } from "@/lib/db.server";
 import { authMiddleware } from "@/lib/auth/auth.functions";
 import { z } from "zod";
 import { toServerResult } from "@/lib/error-codes";
+import { readTimeZone } from "@/lib/time-zone";
 import * as workouts from "./index";
 import { setDraftSchema, type SetDraft } from "./set-draft";
 
@@ -27,11 +28,15 @@ export const completeWorkoutServerFn = createServerFn({ method: "POST" })
     return toServerResult(await workouts.complete(await getServerSidePrismaClient(), context.user.id));
   });
 
+// One transaction: the first Body Weight Entry a body-weight Set records is saved with the Sets, or
+// neither is. The user's today, for that entry, comes from the tz cookie (ADR 0003, ADR 0004).
 export const addSetServerFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .inputValidator(setDraftSchema)
   .handler(async ({ context, data }: { context: { user: { id: string } }; data: SetDraft }) => {
-    return toServerResult(await workouts.addSet(await getServerSidePrismaClient(), context.user.id, data));
+    const db = await getServerSidePrismaClient();
+    const timeZone = readTimeZone();
+    return toServerResult(await db.$transaction((tx) => workouts.addSet(tx, context.user.id, data, timeZone)));
   });
 
 const setCompletedSchema = z.object({ setId: z.uuid(), completed: z.boolean() });

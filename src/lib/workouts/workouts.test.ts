@@ -118,7 +118,7 @@ describe("start", () => {
       const again = expectOk(await workouts.start(tx, user.id)).workout;
       expect(again.id).toBe(first.id);
       // A statement after the second start still runs, so Postgres didn't abort the transaction.
-      expectOk(await workouts.addSet(tx, user.id, { movementId: movement.id, reps: 5, weight: 100 }));
+      expectOk(await workouts.addSet(tx, user.id, { movementId: movement.id, reps: 5, weight: 100 }, "UTC"));
       return first.id;
     });
 
@@ -146,6 +146,9 @@ describe("start", () => {
 });
 
 describe("addSet", () => {
+  // What every Set of a Movement that isn't body-weight carries besides its Weight (ADR 0003).
+  const noAddedWeight = { isBodyWeight: false, addedWeight: null, addedWeightNote: null };
+
   test("adds a Set with its Movement, Reps, Weight and Load to the Current Workout", async () => {
     const user = await createUser(db);
     const movement = await createMovement(db, user.id);
@@ -153,9 +156,17 @@ describe("addSet", () => {
 
     const {
       sets: [set],
-    } = expectOk(await workouts.addSet(db, user.id, { movementId: movement.id, reps: 5, weight: 225 }));
+    } = expectOk(await workouts.addSet(db, user.id, { movementId: movement.id, reps: 5, weight: 225 }, "UTC"));
 
-    expect(set).toEqual({ id: expect.any(String), reps: 5, weight: 225, load: 225, completed: true, movement });
+    expect(set).toEqual({
+      id: expect.any(String),
+      reps: 5,
+      weight: 225,
+      ...noAddedWeight,
+      load: 225,
+      completed: true,
+      movement,
+    });
     expect((await workouts.get(db, user.id))?.sets).toEqual([set]);
   });
 
@@ -166,9 +177,17 @@ describe("addSet", () => {
 
     const {
       sets: [set],
-    } = expectOk(await workouts.addSet(db, user.id, { movementId: movement.id, reps: 5, weight }));
+    } = expectOk(await workouts.addSet(db, user.id, { movementId: movement.id, reps: 5, weight }, "UTC"));
 
-    expect(set).toEqual({ id: expect.any(String), reps: 5, weight, load: weight, completed: true, movement });
+    expect(set).toEqual({
+      id: expect.any(String),
+      reps: 5,
+      weight,
+      ...noAddedWeight,
+      load: weight,
+      completed: true,
+      movement,
+    });
     expect((await workouts.get(db, user.id))?.sets).toEqual([set]);
   });
 
@@ -176,7 +195,7 @@ describe("addSet", () => {
     const user = await createUser(db);
     const movement = await createMovement(db, user.id);
 
-    const result = await workouts.addSet(db, user.id, { movementId: movement.id, reps: 5, weight: 225 });
+    const result = await workouts.addSet(db, user.id, { movementId: movement.id, reps: 5, weight: 225 }, "UTC");
 
     expect(result).toEqual({ ok: false, reason: "no-current-workout" });
     expect(await workouts.get(db, user.id)).toBeNull();
@@ -189,7 +208,7 @@ describe("addSet", () => {
     const set = await logSet(user.id, movement.id);
     await workouts.complete(db, user.id);
 
-    const result = await workouts.addSet(db, user.id, { movementId: movement.id, reps: 8, weight: 135 });
+    const result = await workouts.addSet(db, user.id, { movementId: movement.id, reps: 8, weight: 135 }, "UTC");
 
     expect(result).toEqual({ ok: false, reason: "no-current-workout" });
     expect((await workouts.history(db, user.id))[0]?.sets).toEqual([set]);
@@ -199,7 +218,7 @@ describe("addSet", () => {
     const user = await createUser(db);
     await workouts.start(db, user.id);
 
-    const result = await workouts.addSet(db, user.id, { movementId: crypto.randomUUID(), reps: 5, weight: 225 });
+    const result = await workouts.addSet(db, user.id, { movementId: crypto.randomUUID(), reps: 5, weight: 225 }, "UTC");
 
     expect(result).toEqual({ ok: false, reason: "movement-not-found" });
     expect((await workouts.get(db, user.id))?.sets).toEqual([]);
@@ -213,16 +232,26 @@ describe("addSet", () => {
     const othersMovement = await createMovement(db, owner.id);
     await workouts.start(db, user.id);
 
-    const forOthersMovement = await workouts.addSet(db, user.id, {
-      movementId: othersMovement.id,
-      reps: 5,
-      weight: 225,
-    });
-    const forMissingMovement = await workouts.addSet(db, user.id, {
-      movementId: crypto.randomUUID(),
-      reps: 5,
-      weight: 225,
-    });
+    const forOthersMovement = await workouts.addSet(
+      db,
+      user.id,
+      {
+        movementId: othersMovement.id,
+        reps: 5,
+        weight: 225,
+      },
+      "UTC",
+    );
+    const forMissingMovement = await workouts.addSet(
+      db,
+      user.id,
+      {
+        movementId: crypto.randomUUID(),
+        reps: 5,
+        weight: 225,
+      },
+      "UTC",
+    );
 
     expect(forOthersMovement).toEqual({ ok: false, reason: "movement-not-found" });
     expect(forOthersMovement).toEqual(forMissingMovement);
@@ -236,10 +265,18 @@ describe("addSet", () => {
     await workouts.start(db, user.id);
 
     const { sets } = expectOk(
-      await workouts.addSet(db, user.id, { movementId: movement.id, reps: 6, weight: 185, count: 3 }),
+      await workouts.addSet(db, user.id, { movementId: movement.id, reps: 6, weight: 185, count: 3 }, "UTC"),
     );
 
-    const added = { id: expect.any(String), reps: 6, weight: 185, load: 185, completed: true, movement };
+    const added = {
+      id: expect.any(String),
+      reps: 6,
+      weight: 185,
+      ...noAddedWeight,
+      load: 185,
+      completed: true,
+      movement,
+    };
     expect(sets).toEqual([added, added, added]);
     expect(new Set(sets.map((set) => set.id)).size).toBe(3);
     expect((await workouts.get(db, user.id))?.sets).toEqual(sets);
@@ -252,7 +289,7 @@ describe("addSet", () => {
     await workouts.start(db, user.id);
     await workouts.start(db, otherUser.id);
 
-    await workouts.addSet(db, user.id, { movementId: movement.id, reps: 5, weight: 225 });
+    await workouts.addSet(db, user.id, { movementId: movement.id, reps: 5, weight: 225 }, "UTC");
 
     expect((await workouts.get(db, user.id))?.sets).toHaveLength(1);
     expect((await workouts.get(db, otherUser.id))?.sets).toEqual([]);
@@ -556,7 +593,7 @@ describe("deleteWorkouts", () => {
 
 /** Logs a Set in the user's Current Workout, for tests where adding it is setup, not the subject. */
 async function logSet(userId: string, movementId: string, { reps = 5, weight = 225 } = {}) {
-  return expectOk(await workouts.addSet(db, userId, { movementId, reps, weight })).sets[0];
+  return expectOk(await workouts.addSet(db, userId, { movementId, reps, weight }, "UTC")).sets[0];
 }
 
 async function historyIds(userId: string) {
