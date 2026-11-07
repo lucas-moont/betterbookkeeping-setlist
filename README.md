@@ -115,19 +115,20 @@ Postgres listens on host port `55432` instead of `5432` so it doesn't conflict w
 
 ### Scripts
 
-| Script                     | What it does                                            |
-| -------------------------- | ------------------------------------------------------- |
-| `bun run dev`              | Start Postgres and the app in Docker with watch mode    |
-| `bun run dev:down`         | Stop the Docker services                                |
-| `bun run db:migrate`       | Create and apply a Prisma migration                     |
-| `bun run db:reset`         | Drop the database and re-apply all migrations           |
-| `bun run db:prepare`       | Apply pending migrations and hash legacy passwords      |
-| `bun run typecheck`        | Type-check the project                                  |
-| `bun run build`            | Build for production                                    |
-| `bun run test`             | Run the Playwright e2e tests                            |
-| `bun run test:ui`          | Run the e2e tests in Playwright's UI mode               |
-| `bun run test:integration` | Run the Vitest integration tests against `setlist_test` |
-| `bun run format`           | Format the code with Prettier                           |
+| Script                       | What it does                                                                               |
+| ---------------------------- | ------------------------------------------------------------------------------------------ |
+| `bun run dev`                | Start Postgres and the app in Docker with watch mode                                       |
+| `bun run dev:down`           | Stop the Docker services                                                                   |
+| `bun run db:migrate`         | Create and apply a Prisma migration                                                        |
+| `bun run db:reset`           | Drop the database and re-apply all migrations                                              |
+| `bun run db:prepare`         | Apply pending migrations and hash legacy passwords                                         |
+| `bun run db:explain-indexes` | EXPLAIN the main queries with and without the foreign-key indexes, on a throwaway database |
+| `bun run typecheck`          | Type-check the project                                                                     |
+| `bun run build`              | Build for production                                                                       |
+| `bun run test`               | Run the Playwright e2e tests                                                               |
+| `bun run test:ui`            | Run the e2e tests in Playwright's UI mode                                                  |
+| `bun run test:integration`   | Run the Vitest integration tests against `setlist_test`                                    |
+| `bun run format`             | Format the code with Prettier                                                              |
 
 ## Tech stack
 
@@ -383,3 +384,36 @@ Each workout server function used to do everything itself: validate the input, r
 **Tests.** Integration: `create` with the flag; `update` renames, and the new name shows in the list and in the sets of the Current Workout; another of the user's movements' name in another case is refused and the list doesn't change; changing only the case of its own name passes; a name another user has passes; another user's movement gets the same `movement-not-found` as a random id and stays as it was; name, flag and group change at once; whatever isn't given stays; turning the flag off leaves every set of a Completed Workout and of the Current Workout as it was logged. Unit: the filter options and what each filter shows. E2E: a movement created as body-weight shows the tag after a reload; the dialog changes name, flag and group together, starts from the movement as it is and changes nothing on Cancel; a taken name shows in the dialog; the row's select saves the group; the filters list the groups in use with their counts and filter the list. The list checks read the name alone, since a row's text now also holds its select's options. Each guard was broken on purpose to watch its test fail: the owner check, the name check, a movement conflicting with its own name, the trim, `update` dropping the flag, the tag, the create form and the dialog dropping the flag, the dialog ignoring the current flag, a filter that shows everything, and a row select that doesn't save. The test that turning the flag off leaves sets alone had nothing to break yet, since no code reads the flag when logging; it starts guarding with the body-weight set form.
 
 **Kept as it was, on purpose.** The body-weight set form, the Latest Body Weight as the set's weight, and Added Weight are the second half of assignment 2. The phone layout of the whole app (the bottom tab bar) comes with the responsive layout work; until then the sidebar takes a phone's whole width on every page, this one included.
+
+### Indexes on foreign keys
+
+**The problem.** Postgres doesn't index a foreign key on its own, and neither does Prisma. The starter schema had none, so every read by workout or by user read the whole table: a user's Current Workout, the sets of a workout, the history. With a few thousand rows nobody notices. With millions, every screen slows down as the app grows, for every user. This answers the stretch goal "tell us what we're doing wrong".
+
+**How.**
+
+- **The indexes came with the change that touched each table**, each in its own migration: `Set(workoutId)` and `Set(movementId)` with the movement owners (`20261106120100_index_set_foreign_keys`, see "Movements owned by each user"), and `Workout(userId, completedAt)` with the one Current Workout per user (`20261107064038_workout_user_completed_index`). `Set(movementId)` is for the Progression Chart, which reads one movement's sets; no code reads it yet.
+- **A unique index can cover a foreign key.** A B-tree is searched from its first column, like a phone book sorted by surname, then first name: it finds every Silva, not every João. So the unique `(userId, nameKey)` of `Movement` and `(userId, date)` of `BodyWeightEntry` already serve the lookups by `userId`, and neither table got a second index.
+- **`(userId, completedAt)` serves the Current Workout and the history.** A user's workouts sit together in it, ordered by completion, and Postgres can search it for `completedAt IS NULL` too. The partial index of ADR 0006 is smaller and wins the Current Workout lookup, but it only holds Current Workouts, so it can't serve the history.
+- **A test keeps it that way** (see Tests). A new table with a foreign key, such as sessions or login attempts, fails it until it gets an index.
+
+**The proof.** `bun run db:explain-indexes` (`scripts/explain-foreign-key-indexes.ts`) fills a throwaway `setlist_explain` database with 2,000 users, 100,000 movements, 202,000 workouts and about 2 million sets, which takes a few minutes. It captures the SQL Prisma sends for the Current Workout, the history and deleting workouts, and runs `EXPLAIN ANALYZE` on it with the indexes and again after dropping them, inside a transaction that is rolled back. The Progression Chart query isn't in the code yet, so it uses the shape ADR 0004 describes. "Before" also drops ADR 0006's partial index, since the starter code had none of the four. One run:
+
+| Query                                               | Before                                     | After                                                   |
+| --------------------------------------------------- | ------------------------------------------ | ------------------------------------------------------- |
+| Current Workout: the workout                        | Seq Scan on `Workout`, 59 ms               | Index Scan on ADR 0006's partial index, 0.2 ms          |
+| Current Workout without ADR 0006's index            | Seq Scan on `Workout`, 57 ms               | Index Scan on `Workout_userId_completedAt_idx`, 0.06 ms |
+| Current Workout: its sets                           | Seq Scan on `Set`, 119 ms                  | Bitmap scan on `Set_workoutId_idx`, 0.2 ms              |
+| History: the workouts                               | Seq Scan on `Workout`, 47 ms               | Bitmap scan on `Workout_userId_completedAt_idx`, 0.3 ms |
+| History: their sets                                 | Seq Scan on `Set`, 147 ms                  | Bitmap scan on `Set_workoutId_idx`, 2.3 ms              |
+| Progression Chart of one movement                   | Seq Scan on `Set`, 112 ms                  | Bitmap scan on `Set_movementId_idx`, 2.6 ms             |
+| Deleting 5 workouts: their sets                     | Seq Scan on `Set`, 427 ms                  | Bitmap scan on `Set_workoutId_idx`, 0.2 ms              |
+| Deleting 5 workouts: the foreign-key check on `Set` | 1,176 ms, a full read of `Set` per workout | 0.3 ms                                                  |
+
+- **Read the shape, not the milliseconds.** The times change from run to run with whatever else the machine is doing. The scans don't.
+- **A bitmap scan is an index scan too.** For one row Postgres follows the index straight to it (Index Scan). For more rows, spread over many pages, it first collects their addresses from the index, sorts them by page, then reads each page once.
+- **Deleting is where it hurts most.** After deleting a workout, Postgres checks that no set still points to it. Without `Set(workoutId)`, that check reads every set, once per deleted workout.
+- **An open finding, outside this change.** The history reads the movements of its sets by primary key, so no foreign key is involved, but Prisma sends one id per set: 1,000 ids for 50 movements. Postgres plans for 1,000 rows and reads all of `Movement` (100,000 rows, 11 ms) to return 50. It grows with the history, which loads every workout at once; a history that loads a page at a time would shrink it.
+
+**Tests.** Migration (throwaway database at the schema right before the `Workout` index): the check finds `Workout(userId)` and nothing else, so the unique on `(userId, nameKey)` counts as cover; a partial index on `"Workout"("userId") WHERE "completedAt" IS NULL`, ADR 0006's shape, still leaves `Workout(userId)` uncovered; after the migration, nothing is left. Integration (`src/test/foreign-key-indexes.test.ts`): with every migration applied, no foreign key lacks an index. The partial-index rule was removed on purpose to watch its test fail.
+
+**Kept as it was, on purpose.** An index costs disk space and makes every insert a little slower, so each one here answers a read the app does or, for `Set(movementId)`, the Progression Chart. The check counts any non-partial index whose leading columns are the key's. An index left invalid by a failed `CREATE INDEX CONCURRENTLY`, or a key column only in an `INCLUDE`, would fool it, but no migration here makes either, so the check doesn't test for them.
