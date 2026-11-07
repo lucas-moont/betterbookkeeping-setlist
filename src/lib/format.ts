@@ -13,15 +13,16 @@ export function formatWeight(pounds: number): string {
 
 const dateStyles = {
   short: { month: "short", day: "numeric", year: "numeric" },
+  medium: { weekday: "short", month: "short", day: "numeric", year: "numeric" },
   long: { weekday: "long", month: "long", day: "numeric", year: "numeric" },
 } satisfies Record<string, Intl.DateTimeFormatOptions>;
 
 type DateStyle = keyof typeof dateStyles;
 
 /**
- * An instant (such as completedAt) as the date it was in the user's time zone: "Nov 6, 2026", or
- * "Friday, November 6, 2026" in the long style. The zone comes from useTimeZone(); the server's own
- * zone would show São Paulo's evening as the next day.
+ * An instant (such as completedAt) as the date it was in the user's time zone: "Nov 6, 2026",
+ * "Fri, Nov 6, 2026" in the medium style, or "Friday, November 6, 2026" in the long style. The zone
+ * comes from useTimeZone(); the server's own zone would show São Paulo's evening as the next day.
  */
 export function formatDate(instant: Date, timeZone: string, style: DateStyle = "short"): string {
   return new Intl.DateTimeFormat(locale, { ...dateStyles[style], timeZone }).format(instant);
@@ -47,4 +48,16 @@ export function formatCalendarDate(isoDate: string, style: DateStyle = "short"):
   const [year, month, day] = isoDate.split("-").map(Number);
   // Both the instant and the formatting use UTC, so the zone the code runs in can't move the day.
   return formatDate(new Date(Date.UTC(year, month - 1, day)), "UTC", style);
+}
+
+/**
+ * A "YYYY-MM-DD" date as its month, for a chart's time axis: "Nov", or "Nov 2026" with the year. The
+ * axis asks for the year where a reader needs it (see time-axis.ts).
+ */
+export function formatCalendarMonth(isoDate: string, { withYear = false } = {}): string {
+  const [year, month] = isoDate.split("-").map(Number);
+  const options: Intl.DateTimeFormatOptions = withYear
+    ? { month: "short", year: "numeric", timeZone: "UTC" }
+    : { month: "short", timeZone: "UTC" };
+  return new Intl.DateTimeFormat(locale, options).format(new Date(Date.UTC(year, month - 1, 1)));
 }

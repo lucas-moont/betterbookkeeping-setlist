@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "vitest";
-import { formatCalendarDate, formatDate, formatWeight, todayIsoDate } from "./format";
+import { formatCalendarDate, formatCalendarMonth, formatDate, formatWeight, todayIsoDate } from "./format";
 
 // 22:00 in São Paulo (UTC-3) is already the next day in UTC.
 const lateEveningInSaoPaulo = new Date("2026-11-07T01:00:00Z");
@@ -56,8 +56,29 @@ describe("formatCalendarDate", () => {
     expect(formatCalendarDate("2026-11-06")).toBe("Nov 6, 2026");
   });
 
+  test("shows the short weekday in the medium style", () => {
+    expect(formatCalendarDate("2026-11-06", "medium")).toBe("Fri, Nov 6, 2026");
+  });
+
   test("round-trips today", () => {
     const today = todayIsoDate("America/Sao_Paulo", lateEveningInSaoPaulo);
     expect(formatCalendarDate(today, "long")).toBe("Friday, November 6, 2026");
+  });
+});
+
+describe("formatCalendarMonth", () => {
+  const serverTimeZone = process.env.TZ;
+  afterEach(() => {
+    process.env.TZ = serverTimeZone;
+  });
+
+  test("shows the month, and the year when asked", () => {
+    expect(formatCalendarMonth("2026-11-01")).toBe("Nov");
+    expect(formatCalendarMonth("2027-01-01", { withYear: true })).toBe("Jan 2027");
+  });
+
+  test("shows the same month in any time zone", () => {
+    process.env.TZ = "America/Sao_Paulo";
+    expect(formatCalendarMonth("2026-11-01")).toBe("Nov");
   });
 });
