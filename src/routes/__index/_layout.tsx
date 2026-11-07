@@ -34,13 +34,16 @@ function RouteComponent() {
           ))}
         </div>
         <div className="border-t border-slate-200 pt-4 mt-4 space-y-2">
-          <div className="flex items-center gap-3 px-3 py-2 text-sm text-slate-600">
+          {/* The way into the Profile: the user's own block, active while the Profile is open. */}
+          <Link
+            to="/profile"
+            className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors [&.active]:bg-slate-100 [&.active]:text-slate-900">
             <User className="w-4 h-4" />
             <div className="truncate">
-              <p className="text-xs text-slate-400">Logged in as</p>
+              <p className="text-xs text-slate-500">Logged in as</p>
               <p className="font-medium truncate">{user.name || user.email}</p>
             </div>
-          </div>
+          </Link>
           <a href="/logout">
             <Button variant="ghost" size="sm" className="w-full justify-start gap-3 text-slate-600">
               <LogOut className="w-4 h-4" />
