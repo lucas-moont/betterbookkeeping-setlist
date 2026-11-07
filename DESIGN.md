@@ -145,7 +145,7 @@ A restrained palette: cool slate neutrals plus one warm accent.
 - **Ink** (`#0f172a`, slate-900): page titles and primary text.
 - **Ink Soft** (`#475569`, slate-600): nav labels, table headers and numeric cells.
 - **Ink Muted** (`#64748b`, slate-500): secondary text, empty-state messages, the reps × weight detail in a set row.
-- **Ink Faint** (`#94a3b8`, slate-400): small captions ("Logged in as"), icon-only remove buttons, placeholder dashes.
+- **Ink Faint** (`#94a3b8`, slate-400): small captions ("Logged in as") and placeholder dashes. It is about 2.6:1 on white, below the 3:1 an icon needs and the 4.5:1 text needs, so nothing a user acts on or must read uses it.
 - **Field Label** (`#374151`, gray-700): form labels and outline/ghost button text.
 
 ### Status
@@ -206,7 +206,7 @@ Plain and dependable.
 - **Shape:** gently rounded (8px), 40px tall (`h-10 px-4`); `sm` is 32px (`h-8 px-3`), `lg` is 48px (`h-12 px-6 text-lg`), `icon` is 40×40.
 - **Primary:** Chalk Rust fill, white 500-weight text, `shadow-sm`. Hover drops to 90% opacity.
 - **Outline:** white with a gray-300 border and gray-700 text; hover gray-50 fill and gray-400 border. Used for secondary page actions such as "Complete Workout".
-- **Ghost:** no fill, gray-700 text, gray-100 on hover. Used for "Log out" and icon-only remove buttons (with slate-400 icons).
+- **Ghost:** no fill, gray-700 text, gray-100 on hover. Used for "Log out" and icon-only remove buttons (with slate-500 icons, which pass the 3:1 contrast an icon needs).
 - **Destructive:** red-600 fill, white text, red-700 on hover.
 - **Focus:** a 2px Chalk Rust ring at 50% opacity with a 2px offset. Disabled is 50% opacity.
 - **Icons:** a 16px lucide icon before the label, 8px gap.

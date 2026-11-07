@@ -69,6 +69,7 @@ function SetRow({ set, number, movementName }: { set: WorkoutSet; number: number
   // The mutation stays pending until the workout has refetched, so the circle shows the state it
   // sent in the meantime instead of jumping back.
   const completed = setCompletedMutation.isPending ? setCompletedMutation.variables.completed : set.completed;
+  const { composition, note } = weightParts(set);
 
   return (
     <li
@@ -80,27 +81,49 @@ function SetRow({ set, number, movementName }: { set: WorkoutSet; number: number
         type="button"
         role="checkbox"
         aria-checked={completed}
-        aria-label={`Completed: ${movementName}, set ${number}, ${formatWeight(set.load)} × ${set.reps}`}
+        aria-label={`Completed: ${movementName}, set ${number}, ${set.load < 0 ? composition : formatWeight(set.load)} × ${set.reps}`}
         onClick={() => setCompletedMutation.mutate({ setId: set.id, completed: !completed })}
         className={cn(
           "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition-colors sm:h-9 sm:w-9",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
-          completed ? "text-primary hover:bg-primary/5" : "text-slate-400 hover:bg-slate-100 hover:text-slate-700",
+          completed ? "text-primary hover:bg-primary/5" : "text-slate-500 hover:bg-slate-100 hover:text-slate-700",
         )}>
         {completed ? <CircleCheck className="h-5 w-5" /> : <Circle className="h-5 w-5" />}
       </button>
-      <span className={cn("min-w-0 flex-1 tabular-nums", completed ? "text-slate-700" : "text-slate-400")}>
-        <span className="mr-1 text-slate-400">Set {number}</span>{" "}
-        {set.reps} reps × {formatWeight(set.weight)}
+      <span className={cn("min-w-0 flex-1 tabular-nums", completed ? "text-slate-700" : "text-slate-500")}>
+        <span className="mr-1 text-slate-500">Set {number}</span>{" "}
+        {/* One unit: a narrow row wraps before the note, never inside "172.4 lb + 25 lb". */}
+        <span className="whitespace-nowrap">
+          {set.reps} reps × {composition}
+        </span>
+        {note && (
+          <>
+            {" "}
+            <span className="text-slate-500">({note})</span>
+          </>
+        )}
       </span>
       <Button
         aria-label="Remove set"
         variant="ghost"
         size="icon"
         onClick={() => removeSetMutation.mutate(set.id)}
-        className="h-11 w-11 shrink-0 text-slate-400 hover:text-slate-700 sm:h-9 sm:w-9">
+        className="h-11 w-11 shrink-0 text-slate-500 hover:text-slate-700 sm:h-9 sm:w-9">
         <X className="h-4 w-4" />
       </Button>
     </li>
   );
+}
+
+/**
+ * A set's Weight as the row shows it. A body-weight set with an Added Weight shows both parts, its
+ * body weight then the extra load or the assistance: "172.4 lb + 25 lb", with the note apart.
+ */
+function weightParts(set: WorkoutSet): { composition: string; note: string | null } {
+  if (set.addedWeight === null) return { composition: formatWeight(set.weight), note: null };
+  const sign = set.addedWeight < 0 ? "−" : "+";
+  return {
+    composition: `${formatWeight(set.weight)} ${sign} ${formatWeight(Math.abs(set.addedWeight))}`,
+    note: set.addedWeightNote,
+  };
 }
