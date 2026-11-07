@@ -12,18 +12,33 @@ describe("create", () => {
   test("adds the Movement to the user's library", async () => {
     const user = await createUser(db);
 
-    const { movement } = expectOk(await movements.create(db, user.id, "Bench Press"));
+    const { movement } = expectOk(await movements.create(db, user.id, { name: "Bench Press" }));
 
-    expect(movement).toEqual({ id: expect.any(String), name: "Bench Press" });
+    expect(movement).toEqual({ id: expect.any(String), name: "Bench Press", muscleGroup: null });
+    expect(await movements.list(db, user.id)).toEqual([movement]);
+  });
+
+  test("adds the Movement with its Muscle Group", async () => {
+    const user = await createUser(db);
+
+    const { movement } = expectOk(await movements.create(db, user.id, { name: "Bench Press", muscleGroup: "CHEST" }));
+
+    expect(movement).toEqual({ id: expect.any(String), name: "Bench Press", muscleGroup: "CHEST" });
     expect(await movements.list(db, user.id)).toEqual([movement]);
   });
 
   test("returns movement-name-taken for a name the user already has in another case, and keeps one", async () => {
     const user = await createUser(db);
-    const { movement } = expectOk(await movements.create(db, user.id, "Bench Press"));
+    const { movement } = expectOk(await movements.create(db, user.id, { name: "Bench Press" }));
 
-    expect(await movements.create(db, user.id, "bench press")).toEqual({ ok: false, reason: "movement-name-taken" });
-    expect(await movements.create(db, user.id, " BENCH PRESS ")).toEqual({ ok: false, reason: "movement-name-taken" });
+    expect(await movements.create(db, user.id, { name: "bench press" })).toEqual({
+      ok: false,
+      reason: "movement-name-taken",
+    });
+    expect(await movements.create(db, user.id, { name: " BENCH PRESS " })).toEqual({
+      ok: false,
+      reason: "movement-name-taken",
+    });
 
     expect(await movements.list(db, user.id)).toEqual([movement]);
   });
@@ -31,9 +46,9 @@ describe("create", () => {
   test("lets two users each have a Movement with the same name", async () => {
     const user = await createUser(db);
     const otherUser = await createUser(db);
-    expectOk(await movements.create(db, user.id, "Deadlift"));
+    expectOk(await movements.create(db, user.id, { name: "Deadlift" }));
 
-    const { movement } = expectOk(await movements.create(db, otherUser.id, "Deadlift"));
+    const { movement } = expectOk(await movements.create(db, otherUser.id, { name: "Deadlift" }));
 
     expect(await movements.list(db, otherUser.id)).toEqual([movement]);
   });
@@ -43,8 +58,8 @@ describe("create", () => {
     const user = await createUser(db);
 
     const results = await Promise.all([
-      movements.create(db, user.id, "Pull-up"),
-      movements.create(db, user.id, "pull-up"),
+      movements.create(db, user.id, { name: "Pull-up" }),
+      movements.create(db, user.id, { name: "pull-up" }),
     ]);
 
     expect(results.filter((result) => result.ok)).toHaveLength(1);
@@ -57,15 +72,16 @@ describe("list", () => {
   test("lists only the user's own Movements", async () => {
     const user = await createUser(db);
     const otherUser = await createUser(db);
-    const { movement } = expectOk(await movements.create(db, user.id, "Dips"));
-    expectOk(await movements.create(db, otherUser.id, "Push-up"));
+    const { movement } = expectOk(await movements.create(db, user.id, { name: "Dips" }));
+    expectOk(await movements.create(db, otherUser.id, { name: "Push-up" }));
 
     expect(await movements.list(db, user.id)).toEqual([movement]);
   });
 
   test("lists the Movements in alphabetical order", async () => {
     const user = await createUser(db);
-    for (const name of ["Squat", "Bench Press", "Overhead Press"]) expectOk(await movements.create(db, user.id, name));
+    for (const name of ["Squat", "Bench Press", "Overhead Press"])
+      expectOk(await movements.create(db, user.id, { name }));
 
     expect((await movements.list(db, user.id)).map((movement) => movement.name)).toEqual([
       "Bench Press",
@@ -81,10 +97,38 @@ describe("list", () => {
   });
 });
 
+describe("setMuscleGroup", () => {
+  test("gives a Movement a Muscle Group, changes it, and takes it away", async () => {
+    const user = await createUser(db);
+    const { movement } = expectOk(await movements.create(db, user.id, { name: "Pull-up" }));
+
+    expect(await movements.setMuscleGroup(db, user.id, movement.id, "BACK")).toEqual({ ok: true });
+    expect(await movements.list(db, user.id)).toEqual([{ ...movement, muscleGroup: "BACK" }]);
+
+    expectOk(await movements.setMuscleGroup(db, user.id, movement.id, "ARMS"));
+    expect(await movements.list(db, user.id)).toEqual([{ ...movement, muscleGroup: "ARMS" }]);
+
+    expectOk(await movements.setMuscleGroup(db, user.id, movement.id, null));
+    expect(await movements.list(db, user.id)).toEqual([{ ...movement, muscleGroup: null }]);
+  });
+
+  test("returns movement-not-found for another user's Movement and leaves it as it was", async () => {
+    const owner = await createUser(db);
+    const otherUser = await createUser(db);
+    const { movement } = expectOk(await movements.create(db, owner.id, { name: "Squat", muscleGroup: "LEGS" }));
+
+    const forOthersMovement = await movements.setMuscleGroup(db, otherUser.id, movement.id, "CHEST");
+
+    expect(forOthersMovement).toEqual({ ok: false, reason: "movement-not-found" });
+    expect(forOthersMovement).toEqual(await movements.setMuscleGroup(db, otherUser.id, crypto.randomUUID(), "CHEST"));
+    expect(await movements.list(db, owner.id)).toEqual([movement]);
+  });
+});
+
 describe("ensureOwned", () => {
   test("is ok for the user's own Movement", async () => {
     const user = await createUser(db);
-    const { movement } = expectOk(await movements.create(db, user.id, "Bench Press"));
+    const { movement } = expectOk(await movements.create(db, user.id, { name: "Bench Press" }));
 
     expect(await movements.ensureOwned(db, user.id, movement.id)).toEqual({ ok: true });
   });
@@ -92,7 +136,7 @@ describe("ensureOwned", () => {
   test("returns movement-not-found for another user's Movement, the same as for one that doesn't exist", async () => {
     const owner = await createUser(db);
     const otherUser = await createUser(db);
-    const { movement } = expectOk(await movements.create(db, owner.id, "Bench Press"));
+    const { movement } = expectOk(await movements.create(db, owner.id, { name: "Bench Press" }));
 
     const forOthersMovement = await movements.ensureOwned(db, otherUser.id, movement.id);
 

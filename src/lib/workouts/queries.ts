@@ -9,6 +9,8 @@ import {
   deleteWorkoutsServerFn,
   getCurrentWorkoutServerFn,
   getWorkoutHistoryServerFn,
+  setCompletedServerFn,
+  type SetCompletedChange,
 } from "./workouts.functions";
 import type { SetDraft } from "./set-draft";
 
@@ -42,6 +44,14 @@ export const startWorkoutMutationOptions = () =>
 export const addSetMutationOptions = () =>
   serverMutationOptions({
     mutationFn: (data: SetDraft) => addSetServerFn({ data }),
+    invalidates: [workoutKeys.current],
+  });
+
+// Only Sets of the Current Workout can change state, so neither the history nor the Progression
+// Charts are stale (ADR 0011).
+export const setCompletedMutationOptions = () =>
+  serverMutationOptions({
+    mutationFn: (data: SetCompletedChange) => setCompletedServerFn({ data }),
     invalidates: [workoutKeys.current],
   });
 

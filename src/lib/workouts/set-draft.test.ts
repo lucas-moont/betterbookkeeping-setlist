@@ -20,4 +20,16 @@ describe("setDraftSchema", () => {
   test.each([-1, 1.005, 10000])("refuses a Weight of %s", (weight) => {
     expect(setDraftSchema.safeParse({ ...validDraft, weight }).success).toBe(false);
   });
+
+  test.each([1, 10])("accepts a count of %s Sets", (count) => {
+    expect(setDraftSchema.safeParse({ ...validDraft, count }).success).toBe(true);
+  });
+
+  test("accepts a draft without a count", () => {
+    expect(setDraftSchema.safeParse(validDraft).success).toBe(true);
+  });
+
+  test.each([0, 1.5, 11])("refuses a count of %s Sets", (count) => {
+    expect(setDraftSchema.safeParse({ ...validDraft, count }).success).toBe(false);
+  });
 });

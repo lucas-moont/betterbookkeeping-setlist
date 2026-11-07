@@ -21,15 +21,29 @@ model User {
 // Every Movement belongs to one user (ADR 0001). nameKey is the name trimmed and lower-cased, so
 // names are unique per user ignoring case. The code sets it on every write to name.
 model Movement {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  name      String
-  nameKey   String
-  createdAt DateTime @default(now())
-  sets      Set[]
+  id          String       @id @default(uuid())
+  userId      String
+  user        User         @relation(fields: [userId], references: [id])
+  name        String
+  nameKey     String
+  // Optional: a Movement without one counts toward no Workout's Muscle Groups (ADR 0011).
+  muscleGroup MuscleGroup?
+  createdAt   DateTime     @default(now())
+  sets        Set[]
 
   @@unique([userId, nameKey])
+}
+
+// The fixed list, in the order a Workout's Muscle Groups are shown (ADR 0011). Adding one later
+// takes an ALTER TYPE ... ADD VALUE migration. src/lib/movements/muscle-group.ts mirrors it.
+enum MuscleGroup {
+  CHEST
+  BACK
+  SHOULDERS
+  ARMS
+  LEGS
+  ABS
+  LOWER_BACK
 }
 
 model Workout {
@@ -41,13 +55,17 @@ model Workout {
 }
 
 model Set {
-  id         String   @id @default(uuid())
-  workoutId  String
-  workout    Workout  @relation(fields: [workoutId], references: [id])
-  movementId String
-  movement   Movement @relation(fields: [movementId], references: [id])
-  reps       Int
-  weight     Decimal  @db.Decimal(6, 2)
+  id          String    @id @default(uuid())
+  workoutId   String
+  workout     Workout   @relation(fields: [workoutId], references: [id])
+  movementId  String
+  movement    Movement  @relation(fields: [movementId], references: [id])
+  reps        Int
+  weight      Decimal   @db.Decimal(6, 2)
+  // Sets are listed by createdAt, then id (ADR 0007). Legacy sets got the migration time.
+  createdAt   DateTime  @default(now())
+  // When the Set was completed; NULL makes it a Planned Set, which counts toward nothing (ADR 0011).
+  completedAt DateTime?
 
   @@index([workoutId])
   @@index([movementId])

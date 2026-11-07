@@ -34,6 +34,19 @@ export const addSetServerFn = createServerFn({ method: "POST" })
     return toServerResult(await workouts.addSet(await getServerSidePrismaClient(), context.user.id, data));
   });
 
+const setCompletedSchema = z.object({ setId: z.uuid(), completed: z.boolean() });
+
+/** Which Set to complete (true) or un-complete (false). */
+export type SetCompletedChange = z.infer<typeof setCompletedSchema>;
+
+export const setCompletedServerFn = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .inputValidator(setCompletedSchema)
+  .handler(async ({ context, data }: { context: { user: { id: string } }; data: SetCompletedChange }) => {
+    const db = await getServerSidePrismaClient();
+    return toServerResult(await workouts.setCompleted(db, context.user.id, data.setId, data.completed));
+  });
+
 export const deleteSetServerFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .inputValidator(z.object({ setId: z.uuid() }))
