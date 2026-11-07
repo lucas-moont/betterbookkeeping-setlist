@@ -10,3 +10,14 @@ export { MuscleGroup };
 export const muscleGroups = Object.values(MuscleGroup);
 
 export const muscleGroupSchema = z.enum(MuscleGroup);
+
+/** How each Muscle Group reads on screen (CONTEXT.md). */
+export const muscleGroupLabels: Record<MuscleGroup, string> = {
+  CHEST: "Chest",
+  BACK: "Back",
+  SHOULDERS: "Shoulders",
+  ARMS: "Arms",
+  LEGS: "Legs",
+  ABS: "Abs",
+  LOWER_BACK: "Lower Back",
+};
