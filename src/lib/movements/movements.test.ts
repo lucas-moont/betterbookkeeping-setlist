@@ -31,8 +31,14 @@ describe("create", () => {
     const user = await createUser(db);
     const { movement } = expectOk(await movements.create(db, user.id, { name: "Bench Press" }));
 
-    expect(await movements.create(db, user.id, { name: "bench press" })).toEqual({ ok: false, reason: "movement-name-taken" });
-    expect(await movements.create(db, user.id, { name: " BENCH PRESS " })).toEqual({ ok: false, reason: "movement-name-taken" });
+    expect(await movements.create(db, user.id, { name: "bench press" })).toEqual({
+      ok: false,
+      reason: "movement-name-taken",
+    });
+    expect(await movements.create(db, user.id, { name: " BENCH PRESS " })).toEqual({
+      ok: false,
+      reason: "movement-name-taken",
+    });
 
     expect(await movements.list(db, user.id)).toEqual([movement]);
   });
@@ -74,7 +80,8 @@ describe("list", () => {
 
   test("lists the Movements in alphabetical order", async () => {
     const user = await createUser(db);
-    for (const name of ["Squat", "Bench Press", "Overhead Press"]) expectOk(await movements.create(db, user.id, { name }));
+    for (const name of ["Squat", "Bench Press", "Overhead Press"])
+      expectOk(await movements.create(db, user.id, { name }));
 
     expect((await movements.list(db, user.id)).map((movement) => movement.name)).toEqual([
       "Bench Press",

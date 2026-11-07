@@ -1,37 +1,15 @@
-import { execSync } from "node:child_process";
-import path from "node:path";
-import { afterAll, beforeAll, expect, test } from "vitest";
-import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../../../prisma/generated/client/client";
-import { testDatabaseUrl } from "../test-database-url";
-import { migrationFolders, migrationSqlPath, migrationsDir } from "./migration-folders";
+import { beforeAll, expect, test } from "vitest";
+import type { PrismaClient } from "../../../prisma/generated/client/client";
+import { fixedId as id, migrationTestDatabase } from "./migration-test-database";
 
-// The one migration test (ADR 0001): proves that giving every Movement an owner loses no Set.
+// A migration test (ADR 0001): proves that giving every Movement an owner loses no Set.
 // It builds a throwaway database at the schema right before the migration, fills it with the
 // cases the migration has to handle, applies only that migration, and checks the result.
 
-const targetSql = migrationSqlPath("movements_owned_by_user");
-const targetFolder = path.basename(path.dirname(targetSql));
-const sqlBefore = migrationFolders()
-  .filter((folder) => folder < targetFolder)
-  .map((folder) => path.join(migrationsDir, folder, "migration.sql"));
-
-const databaseName = `setlist_migration_${crypto.randomUUID().replaceAll("-", "")}_test`;
-const databaseUrl = Object.assign(new URL(testDatabaseUrl), { pathname: `/${databaseName}` }).toString();
-
-// The admin client only creates and drops the throwaway database.
-const admin = new PrismaClient({ adapter: new PrismaPg({ connectionString: testDatabaseUrl }) });
+const migration = migrationTestDatabase("movements_owned_by_user");
 let db: PrismaClient;
 
-function applyMigration(sqlPath: string) {
-  execSync(`bunx prisma db execute --file "${sqlPath}"`, {
-    env: { ...process.env, DATABASE_URL: databaseUrl },
-    stdio: "pipe",
-  });
-}
-
 // Fixed ids, so the expected outcome below doesn't depend on random values.
-const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const alice = id(1);
 const bob = id(2);
 const movement = {
@@ -44,9 +22,7 @@ const movement = {
 };
 
 beforeAll(async () => {
-  await admin.$executeRawUnsafe(`CREATE DATABASE "${databaseName}"`);
-  for (const sqlPath of sqlBefore) applyMigration(sqlPath);
-  db = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
+  db = migration.db;
 
   await db.$executeRaw`INSERT INTO "User" (id, email, password, "updatedAt") VALUES
     (${alice}, 'alice@example.com', 'hash', now()), (${bob}, 'bob@example.com', 'hash', now())`;
@@ -65,14 +41,8 @@ beforeAll(async () => {
     (${id(35)}, ${id(22)}, ${movement.deadlift}, 3, 335),
     (${id(36)}, ${id(22)}, ${movement.squatWithSpaces}, 5, 275)`;
 
-  applyMigration(targetSql);
+  migration.applyTarget();
 }, 60_000);
-
-afterAll(async () => {
-  await db?.$disconnect();
-  await admin.$executeRawUnsafe(`DROP DATABASE IF EXISTS "${databaseName}" WITH (FORCE)`);
-  await admin.$disconnect();
-});
 
 test("keeps every Set, with the same workout, reps and weight", async () => {
   const sets = await db.$queryRaw<{ id: string; workoutId: string; reps: number; weight: number }[]>`

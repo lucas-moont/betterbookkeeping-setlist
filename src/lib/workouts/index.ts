@@ -15,6 +15,8 @@ export type WorkoutSet = {
   reps: number;
   weight: number;
   load: number;
+  /** False for a Planned Set, which counts toward nothing (ADR 0011). */
+  completed: boolean;
   movement: Movement;
 };
 
@@ -28,18 +30,20 @@ const workoutSelect = {
   completedAt: true,
   sets: {
     // createdAt, then id: Sets added in one request share a createdAt (ADR 0007, ADR 0011).
-    orderBy: [{ createdAt: "asc" }, { id: "asc" }] as Prisma.SetOrderByWithRelationInput[],
-    select: { id: true, reps: true, weight: true, movement: { select: movementSelect } },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: { id: true, reps: true, weight: true, completedAt: true, movement: { select: movementSelect } },
   },
-} as const;
+} satisfies Prisma.WorkoutSelect;
 
 type SetRow = Prisma.SetGetPayload<{ select: typeof workoutSelect.sets.select }>;
 
 // The one place a stored Set becomes what callers see. Weight comes back as a Prisma Decimal, which
-// a server function can't serialize, so it becomes a number here (ADR 0002).
+// a server function can't serialize, so it becomes a number here (ADR 0002). When the Set was
+// completed stays on the server; callers only learn whether it is (ADR 0011).
 function toSet(row: SetRow): WorkoutSet {
   const weight = row.weight.toNumber();
-  return { id: row.id, reps: row.reps, weight, load: load({ weight }), movement: row.movement };
+  const completed = row.completedAt !== null;
+  return { id: row.id, reps: row.reps, weight, load: load({ weight }), completed, movement: row.movement };
 }
 
 /** Starts a new Current Workout for the user. */
@@ -53,6 +57,9 @@ export const start = createServerOnlyFn(
 // What makes a workout the user's Current Workout. Every operation filters with this, and nothing
 // else spells the rule out.
 const currentWorkoutWhere = (userId: string) => ({ userId, completedAt: null });
+
+// A Set of the user's Current Workout: the only Sets removeSet and setCompleted may touch.
+const currentWorkoutSetWhere = (userId: string, setId: string) => ({ id: setId, workout: currentWorkoutWhere(userId) });
 
 // Until the partial index of ADR 0006 allows only one, a user can have several open workouts. This
 // tie-break makes get, addSet and complete pick the same one; delete it once the index exists.
@@ -79,26 +86,58 @@ export const get = createServerOnlyFn(async (db: DbClient, userId: string): Prom
 });
 
 /**
- * Adds a Set to the user's Current Workout. The draft must already be valid (setDraftSchema). A
- * Movement of another user gets the same movement-not-found as one that doesn't exist (ADR 0001).
+ * Adds `count` identical Sets (one by default) to the user's Current Workout, all completed, as the
+ * README's "log every set as you go" (ADR 0011). They come back in the order the reads list them.
+ * The draft must already be valid (setDraftSchema). A Movement of another user gets the same
+ * movement-not-found as one that doesn't exist (ADR 0001).
  */
 export const addSet = createServerOnlyFn(
   async (
     db: DbClient,
     userId: string,
-    draft: SetDraft,
-  ): Promise<Result<{ set: WorkoutSet }, "no-current-workout" | "movement-not-found">> => {
+    { movementId, reps, weight, count = 1 }: SetDraft,
+  ): Promise<Result<{ sets: WorkoutSet[] }, "no-current-workout" | "movement-not-found">> => {
     const workoutId = await findCurrentWorkoutId(db, userId);
     if (!workoutId) return { ok: false, reason: "no-current-workout" };
     // Movements are never deleted, so nothing can change between this check and the insert.
-    const owned = await ensureOwned(db, userId, draft.movementId);
+    const owned = await ensureOwned(db, userId, movementId);
     if (!owned.ok) return owned;
 
-    const set = await db.set.create({
-      data: { workoutId, movementId: draft.movementId, reps: draft.reps, weight: draft.weight },
+    // One INSERT: all of them get in, or none. They share one moment, so they are read back with the
+    // reads' own order, which falls back to id.
+    const now = new Date();
+    const set = { workoutId, movementId, reps, weight, createdAt: now, completedAt: now };
+    const added = await db.set.createManyAndReturn({
+      data: Array.from({ length: count }, () => set),
+      select: { id: true },
+    });
+    const rows = await db.set.findMany({
+      where: { id: { in: added.map((row) => row.id) } },
+      orderBy: workoutSelect.sets.orderBy,
       select: workoutSelect.sets.select,
     });
-    return { ok: true, set: toSet(set) };
+    return { ok: true, sets: rows.map(toSet) };
+  },
+);
+
+/**
+ * Completes a Set of the user's Current Workout, or un-completes it, which makes it a Planned Set
+ * (ADR 0011). A Set already in that state is left alone, so a double click keeps when it was
+ * completed. A Set of a Completed Workout or of another user gets the same set-not-found as one that
+ * doesn't exist, so the answer never reveals it exists.
+ */
+export const setCompleted = createServerOnlyFn(
+  async (db: DbClient, userId: string, setId: string, completed: boolean): Promise<Result<object, "set-not-found">> => {
+    const ownSet = currentWorkoutSetWhere(userId, setId);
+    // Only a Set in the other state changes, and the ownership check is in the same statement.
+    const { count } = await db.set.updateMany({
+      where: { ...ownSet, completedAt: completed ? null : { not: null } },
+      data: { completedAt: completed ? new Date() : null },
+    });
+    if (count > 0) return { ok: true };
+    // Nothing changed: either the Set was already in that state, or it isn't the user's to change.
+    const exists = await db.set.count({ where: ownSet });
+    return exists > 0 ? { ok: true } : { ok: false, reason: "set-not-found" };
   },
 );
 
@@ -109,7 +148,7 @@ export const addSet = createServerOnlyFn(
 export const removeSet = createServerOnlyFn(
   async (db: DbClient, userId: string, setId: string): Promise<Result<object, "set-not-found">> => {
     // One statement: the ownership check and the delete can't drift apart.
-    const { count } = await db.set.deleteMany({ where: { id: setId, workout: currentWorkoutWhere(userId) } });
+    const { count } = await db.set.deleteMany({ where: currentWorkoutSetWhere(userId, setId) });
     return count === 0 ? { ok: false, reason: "set-not-found" } : { ok: true };
   },
 );
