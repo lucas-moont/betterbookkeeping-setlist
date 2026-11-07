@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { serverMutationOptions } from "@/lib/server-mutation";
+import { progressionKeys } from "@/lib/progression/queries";
 import { workoutKeys } from "@/lib/workouts/queries";
 import type { NewMovement } from "./index";
 import {
@@ -38,10 +39,11 @@ export const setMuscleGroupMutationOptions = () =>
   });
 
 // The edit dialog. A Set reads its Movement's name and a Workout its Muscle Groups (ADR 0011), so
-// the Current Workout and the history refresh too. A taken name shows under the name field.
+// the Current Workout and the history refresh too, and so does the Progression Chart's movement
+// picker, which shows the name and the body-weight flag. A taken name shows under the name field.
 export const updateMovementMutationOptions = () =>
   serverMutationOptions({
     mutationFn: (data: MovementEdit) => updateMovementServerFn({ data }),
-    invalidates: [movementKeys.all, workoutKeys.all],
+    invalidates: [movementKeys.all, workoutKeys.all, progressionKeys.all],
     formErrors: ["movement-name-taken"],
   });
