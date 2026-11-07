@@ -17,10 +17,15 @@ export async function openPage(page: Page, path: string) {
   return response;
 }
 
+/** What the new movement form takes besides the name: a muscle group label and the body-weight flag. */
+export type NewMovementOptions = { muscleGroup?: string; bodyWeight?: boolean };
+
 /** Creates a movement from the Movements page and waits until it is listed. */
-export async function createMovement(page: Page, name: string) {
+export async function createMovement(page: Page, name: string, { muscleGroup, bodyWeight }: NewMovementOptions = {}) {
   await openPage(page, "/movements");
   await page.getByLabel("Movement name").fill(name);
+  if (muscleGroup) await page.getByLabel("Muscle group", { exact: true }).selectOption({ label: muscleGroup });
+  if (bodyWeight) await page.getByLabel("Body-weight").check();
   await page.getByRole("button", { name: "Add" }).click();
   await expect(page.getByRole("listitem").filter({ hasText: name })).toBeVisible();
 }
