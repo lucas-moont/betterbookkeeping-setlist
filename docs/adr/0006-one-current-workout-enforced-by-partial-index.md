@@ -4,12 +4,13 @@ The UI shows a single Current Workout, but nothing stopped a user from having se
 
 ## Consequences
 
-The index can't be created while any user has more than one open workout, and existing rows don't record when they started. Before creating the index, the migration deletes empty open workouts, keeps the open workout with the most sets for each user, and marks the others as completed now. No set is lost. Legacy sets carry no timestamp, so there is no truer completion time to use: each affected user gets one extra Training Day, on the day of the migration, in their Progression Charts. That's rare and accepted.
+The index can't be created while any user has more than one Current Workout, and existing rows don't record when they started. Before creating the index, the migration sorts out only the users with more than one: it keeps open the one with the most Sets (ties: the lowest id), deletes the other empty ones, and marks the others with Sets as completed now. No Set is lost. A user with a single Current Workout keeps it, even an empty one: completing or discarding a workout with no Sets is the user's choice (CONTEXT.md, Gym Visit), and a migration that deletes it silently would make that choice for them. Legacy Sets carry no timestamp, so there is no truer completion time to use: each affected user gets one extra Training Day, on the day of the migration, in their Progression Charts. That's rare and accepted.
 
-Starting a workout uses `INSERT ... ON CONFLICT ("userId") WHERE "completedAt" IS NULL DO NOTHING` and then reads the open workout. Catching P2002 and reading again would also work alone, but not inside a `$transaction`, because Postgres aborts the transaction after the error.
+Starting a workout uses `INSERT ... ON CONFLICT ("userId") WHERE "completedAt" IS NULL DO NOTHING` and then reads the Current Workout. Catching P2002 and reading again would also work alone, but not inside a `$transaction`, because Postgres aborts the transaction after the error.
 
-Prisma doesn't know the index exists, so every new migration that `prisma migrate dev` generates will include a `DROP INDEX` for it. Delete that line before applying the migration. An integration test that runs two `start()` calls concurrently guards this: the test setup runs `migrate deploy`, so a migration that drops the index turns the test red.
+Prisma doesn't introspect the partial index, so it neither manages it nor drops it: the migrations `prisma migrate dev` generates leave it alone (checked with Prisma 7.2 by generating one against a copy of the migrations). The rule is still written in three places, the Prisma `where` of the workouts module, the `ON CONFLICT` of `start()`, and the index, so a change to what a Current Workout is has to touch all three. An integration test runs concurrent `start()` calls, each through its own client, and guards the index: the test setup runs `migrate deploy`, and without the index the `ON CONFLICT` has no constraint to match, so the test turns red.
 
 ## Considered Options
 
 - **Check in the server function only.** Simpler, but two concurrent requests (a double click) can both pass the check.
+- **Delete every empty Current Workout in the migration.** The first plan. The index doesn't need it, and on the local database it would have deleted 471 workouts, each the only Current Workout of its user, without asking.

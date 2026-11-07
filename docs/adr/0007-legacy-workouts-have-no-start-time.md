@@ -1,6 +1,6 @@
 # Legacy workouts have no start time
 
-`Workout` gains `startedAt` so the Current Workout can show when it started, and so a later feature can measure workout duration. Workouts created before this change have no record of when they started, so their `startedAt` stays `NULL`. The column is nullable in the database, but every new workout must have one. Code that reads `startedAt` treats `NULL` as "unknown".
+`Workout` gains `startedAt` so the Current Workout can show when it started, and so a later feature can measure workout duration. Workouts created before this change have no record of when they started, so their `startedAt` stays `NULL`. The column is nullable in the database, but every new workout must have one. Code that reads `startedAt` treats `NULL` as "unknown": the Current Workout card shows no date for such a workout rather than today's.
 
 `Set.createdAt` has the same problem. It arrived earlier than `startedAt`, with planned sets (ADR 0011), because tapping a set's circle must not move it in the list. It is non-null with a default, so every legacy set gets the migration time and their order within a workout means nothing. Sets are sorted by `createdAt`, then `id`, so the order is at least stable.
 
