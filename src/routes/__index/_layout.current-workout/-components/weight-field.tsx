@@ -1,12 +1,13 @@
 import { Info, Lock } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import type { BodyWeightEntry } from "@/lib/body-weight";
-import { formatCalendarDate, formatWeight, weightUnit } from "@/lib/format";
+import { formatCalendarDate, formatWeight, formatWeightAmount, weightUnit } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { maxWeight, weightStep } from "@/lib/weight";
-import { fieldClass } from "./field-class";
+import { affixClass, fieldClass, noSpinClass } from "./field-class";
 
-const unitClass = "pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400";
+const unitClass = cn(affixClass, "right-3");
 
 /**
  * The set form's Weight. A Body-weight Movement takes the Latest Body Weight, shown locked; with no
@@ -33,7 +34,7 @@ export function WeightField({
         <Input
           readOnly
           aria-label="Body weight, from your latest entry"
-          value={String(latestBodyWeight.weight)}
+          value={formatWeightAmount(latestBodyWeight.weight)}
           title={`Your latest body weight, from ${formatCalendarDate(latestBodyWeight.date)}`}
           className={cn(
             fieldClass,
@@ -50,17 +51,53 @@ export function WeightField({
 
   const label = isBodyWeight ? "Body weight" : "Weight";
   return (
-    <div className="relative">
+    <WeightInput
+      label={label}
+      placeholder={label}
+      value={value}
+      invalid={invalid}
+      describedBy={describedBy}
+      onChange={onChange}
+    />
+  );
+}
+
+/**
+ * A pounds field with the unit beside it: the set's Weight and the Added Weight's amount. An invalid
+ * value points at the message that explains it.
+ */
+export function WeightInput({
+  label,
+  placeholder,
+  value,
+  invalid,
+  describedBy,
+  onChange,
+  autoFocus,
+  className,
+}: {
+  label: string;
+  placeholder: string;
+  value: string;
+  invalid: boolean;
+  describedBy: string | undefined;
+  onChange: (value: string) => void;
+  autoFocus?: boolean;
+  className?: string;
+}) {
+  return (
+    <div className={cn("relative", className)}>
       <Input
+        autoFocus={autoFocus}
         type="number"
         inputMode="decimal"
         aria-label={label}
         aria-invalid={invalid ? true : undefined}
         aria-describedby={invalid ? describedBy : undefined}
-        placeholder={label}
+        placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className={cn(fieldClass, "pr-9", invalid && "border-red-300")}
+        className={cn(fieldClass, noSpinClass, "pr-9", invalid && "border-red-300")}
         min={0}
         max={maxWeight}
         step={weightStep}
@@ -93,14 +130,14 @@ export function BodyWeightNote({
     );
   }
 
+  // A note that stays while the movement is picked, not an urgent message: role="note" replaces the
+  // primitive's role="alert", which would interrupt a screen reader every time it appears.
   return (
-    <div
-      className={cn(
-        "flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800",
-        className,
-      )}>
-      <Info aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
-      <p>No body weight recorded yet. Enter it as the weight: it's saved as today's body weight too.</p>
-    </div>
+    <Alert variant="warning" role="note" className={className}>
+      <Info aria-hidden="true" className="h-4 w-4" />
+      <AlertDescription>
+        No body weight recorded yet. Enter it as the weight: it's saved as today's body weight too.
+      </AlertDescription>
+    </Alert>
   );
 }

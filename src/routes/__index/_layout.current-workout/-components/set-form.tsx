@@ -11,9 +11,10 @@ import { ServerResultError } from "@/lib/error-codes";
 import { isFormError } from "@/lib/server-mutation";
 import { cn } from "@/lib/utils";
 import { addSetMutationOptions } from "@/lib/workouts/queries";
-import { maxReps, maxSetCount } from "@/lib/workouts/set-draft";
+import { maxReps, maxSetCount, setDraftSchema, type SetDraft } from "@/lib/workouts/set-draft";
+import { AddedWeight, addedWeightFields, assistanceError, noAddedWeight } from "./added-weight";
 import { BodyWeightNote, WeightField } from "./weight-field";
-import { fieldClass } from "./field-class";
+import { affixClass, fieldClass, noSpinClass } from "./field-class";
 
 /** How many sets one Add adds until the lifter picks another number. */
 const defaultSetCount = "3";
@@ -22,6 +23,21 @@ const defaultSetCount = "3";
 function parseSetCount(value: string): number | null {
   const count = Number(value);
   return Number.isInteger(count) && count >= 1 && count <= maxSetCount ? count : null;
+}
+
+/** What the form shows next to each field of the draft, one message per field. */
+type DraftErrors = Partial<Record<keyof SetDraft, string>>;
+
+/** The draft's fields in the order the form shows them, so the messages read top to bottom. */
+const fieldOrder: (keyof SetDraft)[] = ["movementId", "weight", "reps", "count", "addedWeight", "addedWeightNote"];
+
+function errorsByField(issues: readonly { path: readonly PropertyKey[]; message: string }[]): DraftErrors {
+  const errors: DraftErrors = {};
+  for (const issue of issues) {
+    const field = issue.path[0] as keyof SetDraft;
+    errors[field] ??= issue.message;
+  }
+  return errors;
 }
 
 /**
@@ -42,6 +58,8 @@ export function SetForm({
   const [reps, setReps] = useState("");
   const [weight, setWeight] = useState("");
   const [count, setCount] = useState(defaultSetCount);
+  const [added, setAdded] = useState(noAddedWeight);
+  const [draftErrors, setDraftErrors] = useState<DraftErrors>({});
   // The confirmation of the last add, when it also saved a body weight.
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -75,17 +93,43 @@ export function SetForm({
     e.preventDefault();
     if (!movement || !canSubmit) return;
     setNotice(null);
-    addSetMutation.mutate({
+    // The server takes a Body-weight Movement's Weight from the Latest Body Weight itself.
+    const weightToSend = lockedWeight ? lockedWeight.weight : Number(weight);
+    // The same schema the server validates with, so the form refuses what the server would.
+    const parsed = setDraftSchema.safeParse({
       movementId: movement.id,
       reps: Number(reps),
-      // The server takes a Body-weight Movement's Weight from the Latest Body Weight itself.
-      weight: lockedWeight ? lockedWeight.weight : Number(weight),
+      weight: weightToSend,
       count: setsToAdd ?? undefined,
+      ...(isBodyWeight && added.open ? addedWeightFields(added) : {}),
     });
+    if (!parsed.success) {
+      setDraftErrors(errorsByField(parsed.error.issues));
+      addSetMutation.reset();
+      return;
+    }
+    const { addedWeight } = parsed.data;
+    const assistance = addedWeight === undefined ? undefined : assistanceError(weightToSend, addedWeight);
+    if (assistance) {
+      setDraftErrors({ addedWeight: assistance });
+      addSetMutation.reset();
+      return;
+    }
+    setDraftErrors({});
+    addSetMutation.mutate(parsed.data);
   };
+
+  // What to fix, the form's own checks first, then what the server refused.
+  const amountError =
+    draftErrors.addedWeight ??
+    (formError?.code === "assistance-exceeds-body-weight" ? formError.message : undefined);
+  const messages = [
+    ...new Set([...fieldOrder.map((field) => draftErrors[field]), formError?.message].filter(Boolean)),
+  ];
 
   return (
     <form
+      aria-label="Add a set"
       onSubmit={handleAddSet}
       className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_8rem_6rem_7rem_auto] sm:items-center">
       <Select
@@ -107,8 +151,8 @@ export function SetForm({
         isBodyWeight={isBodyWeight}
         latestBodyWeight={latestBodyWeight}
         value={weight}
-        invalid={formError?.code === "body-weight-required"}
-        describedBy={formError ? messageId : undefined}
+        invalid={draftErrors.weight !== undefined || formError?.code === "body-weight-required"}
+        describedBy={messageId}
         onChange={(value) => {
           setWeight(value);
           clearMessages();
@@ -123,14 +167,14 @@ export function SetForm({
           placeholder="Reps"
           value={reps}
           onChange={(e) => setReps(e.target.value)}
-          className={fieldClass}
+          className={cn(fieldClass, noSpinClass)}
           min={1}
           max={maxReps}
         />
         <div className="relative">
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">
+            className={cn(affixClass, "left-3")}>
             ×
           </span>
           <Input
@@ -139,33 +183,46 @@ export function SetForm({
             aria-label="Number of sets"
             value={count}
             onChange={(e) => setCount(e.target.value)}
-            className={cn(
-              fieldClass,
-              "pl-7 pr-12 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
-            )}
+            className={cn(fieldClass, noSpinClass, "pl-7 pr-12")}
             min={1}
             max={maxSetCount}
             step={1}
           />
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">
+            className={cn(affixClass, "right-3")}>
             sets
           </span>
         </div>
       </div>
       {movement && isBodyWeight && (
-        <BodyWeightNote movementName={movement.name} latestBodyWeight={latestBodyWeight} className="sm:col-span-full" />
+        <>
+          <BodyWeightNote
+            movementName={movement.name}
+            latestBodyWeight={latestBodyWeight}
+            className="sm:col-span-full"
+          />
+          <AddedWeight
+            draft={added}
+            errors={{ amount: amountError, note: draftErrors.addedWeightNote }}
+            describedBy={messageId}
+            onChange={(draft) => {
+              setAdded(draft);
+              setDraftErrors({});
+              clearMessages();
+            }}
+            className="sm:col-span-full"
+          />
+        </>
       )}
-      {formError && (
-        <p id={messageId} role="alert" className="text-sm text-red-600 sm:col-span-full">
-          {formError.message}
-        </p>
-      )}
-      {notice && (
-        <p role="status" className="text-sm text-slate-500 sm:col-span-full">
-          {notice}
-        </p>
+      {messages.length > 0 && (
+        <div id={messageId} role="alert" className="space-y-0.5 sm:col-span-full">
+          {messages.map((message) => (
+            <p key={message} className="text-sm text-red-600">
+              {message}
+            </p>
+          ))}
+        </div>
       )}
       {/* Last in the form on a phone; at the end of the first row from sm up. */}
       <Button
@@ -176,10 +233,17 @@ export function SetForm({
         <Plus className="h-4 w-4" />
         {addSetMutation.isPending ? "Adding..." : setsToAdd && setsToAdd > 1 ? `Add ${setsToAdd} sets` : "Add"}
       </Button>
-      {/* Always on screen: a phone has no hover for a tooltip. */}
-      <p id={helpId} className="text-sm text-slate-500 sm:col-span-full">
-        Each set you add counts as completed. Tap its circle to unmark a set you didn't do.
-      </p>
+      <div className="sm:col-span-full">
+        {/* Always mounted, so a screen reader announces the text when it changes. Here and not in the
+            grid, where even an empty row would add a gap. */}
+        <p role="status" className={cn("text-sm text-slate-500", notice && "mb-2")}>
+          {notice}
+        </p>
+        {/* Always on screen: a phone has no hover for a tooltip. */}
+        <p id={helpId} className="text-sm text-slate-500">
+          Each set you add counts as completed. Tap its circle to unmark a set you didn't do.
+        </p>
+      </div>
     </form>
   );
 }
