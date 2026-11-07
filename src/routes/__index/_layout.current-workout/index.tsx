@@ -1,24 +1,19 @@
-import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
-import { Play, Check, Plus, X } from "lucide-react";
+import { Play, Check } from "lucide-react";
 import { useSuspenseQuery, useMutation } from "@tanstack/react-query";
 import {
-  addSetMutationOptions,
   completeWorkoutMutationOptions,
   currentWorkoutQueryOptions,
-  removeSetMutationOptions,
   startWorkoutMutationOptions,
 } from "@/lib/workouts/queries";
 import { movementsQueryOptions } from "@/lib/movements/queries";
-import { formatDate, formatWeight } from "@/lib/format";
+import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useTimeZone } from "@/lib/time-zone";
-import { maxWeight, weightStep } from "@/lib/weight";
-import { maxReps } from "@/lib/workouts/set-draft";
+import { SetForm } from "./-components/set-form";
+import { SetList } from "./-components/set-list";
 
 export const Route = createFileRoute("/__index/_layout/current-workout/")({
   loader: async ({ context }) => {
@@ -34,32 +29,10 @@ function CurrentWorkoutPage() {
   const { data: workout } = useSuspenseQuery(currentWorkoutQueryOptions());
   const { data: movements } = useSuspenseQuery(movementsQueryOptions());
   const timeZone = useTimeZone();
-  const [selectedMovement, setSelectedMovement] = useState("");
-  const [reps, setReps] = useState("");
-  const [weight, setWeight] = useState("");
 
   const startWorkoutMutation = useMutation(startWorkoutMutationOptions());
 
   const completeWorkoutMutation = useMutation(completeWorkoutMutationOptions());
-
-  const addSetMutation = useMutation({
-    ...addSetMutationOptions(),
-    onSuccess: () => {
-      setReps("");
-    },
-  });
-
-  const removeSetMutation = useMutation(removeSetMutationOptions());
-
-  const handleAddSet = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedMovement || !reps || !weight) return;
-    addSetMutation.mutate({
-      movementId: selectedMovement,
-      reps: Number(reps),
-      weight: Number(weight),
-    });
-  };
 
   if (!workout) {
     return (
@@ -98,68 +71,8 @@ function CurrentWorkoutPage() {
         )}
         {/* CardContent drops its top padding for the header above it; with no header, it keeps it. */}
         <CardContent className={cn("space-y-4", !workout.startedAt && "pt-6")}>
-          <form onSubmit={handleAddSet} className="flex gap-2 items-center">
-            <Select
-              aria-label="Movement"
-              value={selectedMovement}
-              onChange={(e) => setSelectedMovement(e.target.value)}>
-              <option value="">Select movement</option>
-              {movements.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </Select>
-            <Input
-              type="number"
-              aria-label="Weight"
-              placeholder="Weight"
-              value={weight}
-              onChange={(e) => setWeight(e.target.value)}
-              className="w-24"
-              min={0}
-              max={maxWeight}
-              step={weightStep}
-            />
-            <Input
-              type="number"
-              aria-label="Reps"
-              placeholder="Reps"
-              value={reps}
-              onChange={(e) => setReps(e.target.value)}
-              className="w-24"
-              min={1}
-              max={maxReps}
-            />
-            <Button type="submit" disabled={!selectedMovement || !reps || !weight} size="sm">
-              <Plus className="w-4 h-4 mr-1" />
-              {addSetMutation.isPending ? "Adding..." : "Add"}
-            </Button>
-          </form>
-          {workout.sets.length === 0 ? (
-            <p className="text-sm text-slate-500">No sets yet. Add exercises to your workout!</p>
-          ) : (
-            <ul className="space-y-2">
-              {workout.sets.map((set) => (
-                <li key={set.id} className="px-3 py-2 bg-slate-50 rounded-lg text-sm flex items-center justify-between">
-                  <div>
-                    <span className="font-medium">{set.movement.name}</span>
-                    <span className="text-slate-500 ml-2">
-                      {set.reps} reps × {formatWeight(set.weight)}
-                    </span>
-                  </div>
-                  <Button
-                    aria-label="Remove set"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => removeSetMutation.mutate(set.id)}
-                    className="h-8 w-8 text-slate-400">
-                    <X className="w-4 h-4" />
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          )}
+          <SetForm movements={movements} />
+          <SetList sets={workout.sets} />
         </CardContent>
       </Card>
     </div>
