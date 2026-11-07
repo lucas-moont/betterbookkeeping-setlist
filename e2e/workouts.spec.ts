@@ -9,6 +9,13 @@ import {
   uniqueToken,
 } from "./helpers";
 
+// Written out here rather than imported from src/lib/format.ts, so the test doesn't check the code
+// against itself: "Saturday, November 7, 2026".
+function longDate(instant: Date, timeZone: string) {
+  const options = { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone } as const;
+  return new Intl.DateTimeFormat("en-US", options).format(instant);
+}
+
 /** Rows of the history table that hold a workout (the header row has the "select all" box instead). */
 function historyRows(page: Page) {
   return page.getByRole("row").filter({ has: page.getByRole("checkbox", { name: "Select workout", exact: true }) });
@@ -26,10 +33,28 @@ test.describe("Workouts", () => {
       await expect(page.getByText("No active workout")).toBeHidden();
     });
 
-    // Skipped until LUC-134 adds Workout.startedAt: the card shows today's date, not the start date.
-    test.skip("should show the workout date after starting", async ({ page }) => {
-      // TODO: Implement this test
+    test("should show the workout date after starting", async ({ page }) => {
+      // The browser's clock is moved forward after starting, so today's date and the start date
+      // differ, and only a card that shows when the workout started passes (ADR 0007).
+      await page.clock.install();
+      await startWorkout(page);
+      // Read from the card rather than computed here, so a midnight between the two can't fail it.
+      const cardDate = page.getByRole("heading", { level: 3 });
+      const startDay = await cardDate.textContent();
+      const timeZone = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
+      const twoDaysLater = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+      expect(startDay).not.toBe(longDate(twoDaysLater, timeZone));
+      await page.clock.setSystemTime(twoDaysLater);
+
+      // Away and back through the menu, so the page renders again with the moved clock.
+      await page.getByRole("link", { name: "Workout History" }).click();
+      await expect(page.getByRole("heading", { name: "Workout History" })).toBeVisible();
+      await page.getByRole("link", { name: "Current Workout" }).click();
+
+      await expect(page.getByRole("heading", { name: "Current Workout" })).toBeVisible();
+      await expect(cardDate).toHaveText(startDay!);
     });
+
   });
 
   test.describe("read", () => {

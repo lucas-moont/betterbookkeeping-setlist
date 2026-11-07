@@ -46,7 +46,8 @@ for (const timeZone of [ahead, behind]) {
   test.describe(`in ${timeZone}`, () => {
     test.use({ timezoneId: timeZone });
 
-    test("should show today in the Current Workout title, on the server too", async ({ page }) => {
+    // The title is the day the workout started, which is today for one started just now.
+    test("should show the start date in the Current Workout title, on the server too", async ({ page }) => {
       await startWorkout(page);
       const hydrationErrors = collectHydrationErrors(page);
 

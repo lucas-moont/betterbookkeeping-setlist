@@ -14,7 +14,8 @@ import {
   startWorkoutMutationOptions,
 } from "@/lib/workouts/queries";
 import { movementsQueryOptions } from "@/lib/movements/queries";
-import { formatCalendarDate, formatWeight, todayIsoDate } from "@/lib/format";
+import { formatDate, formatWeight } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { useTimeZone } from "@/lib/time-zone";
 import { maxWeight, weightStep } from "@/lib/weight";
 import { maxReps } from "@/lib/workouts/set-draft";
@@ -88,12 +89,15 @@ function CurrentWorkoutPage() {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>
-            {formatCalendarDate(todayIsoDate(timeZone), "long")}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+        {/* The day the workout started. One from before start times were recorded has none, and
+            no date is shown rather than a guessed one (ADR 0007). */}
+        {workout.startedAt && (
+          <CardHeader>
+            <CardTitle>{formatDate(workout.startedAt, timeZone, "long")}</CardTitle>
+          </CardHeader>
+        )}
+        {/* CardContent drops its top padding for the header above it; with no header, it keeps it. */}
+        <CardContent className={cn("space-y-4", !workout.startedAt && "pt-6")}>
           <form onSubmit={handleAddSet} className="flex gap-2 items-center">
             <Select
               aria-label="Movement"
