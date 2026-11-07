@@ -53,6 +53,9 @@ model Workout {
   id          String    @id @default(uuid())
   completedAt DateTime?
   sets        Set[]
+
+  // The history reads a user's Completed Workouts by completedAt.
+  @@index([userId, completedAt])
 }
 
 model Set {
