@@ -164,3 +164,78 @@ describe("getMetrics", () => {
     });
   });
 });
+
+describe("listMovements", () => {
+  test("lists only Movements with a Completed Set in a Completed Workout", async () => {
+    const user = await createUser(db);
+    const bench = await createMovement(db, user.id, { name: "Bench Press" });
+    const plannedOnly = await createMovement(db, user.id, { name: "Squat" });
+    const currentOnly = await createMovement(db, user.id, { name: "Deadlift" });
+    await createMovement(db, user.id, { name: "Row" });
+    await logWorkout(user.id, "2026-11-03T10:00:00Z", [
+      { movementId: bench.id, reps: 5, weight: 100 },
+      { movementId: plannedOnly.id, reps: 5, weight: 225, planned: 1 },
+    ]);
+    expectOk(await workouts.start(db, user.id));
+    expectOk(await workouts.addSet(db, user.id, { movementId: currentOnly.id, reps: 5, weight: 315 }, "UTC"));
+
+    const { movements } = expectOk(await progression.listMovements(db, user.id, "UTC"));
+
+    expect(movements).toEqual([{ id: bench.id, name: bench.name, isBodyWeight: false, trainingDays: 1 }]);
+  });
+
+  test("sorts them by name, ignoring case", async () => {
+    const user = await createUser(db);
+    const named = await Promise.all(
+      ["curl", "Arnold Press", "bench press"].map((name) => createMovement(db, user.id, { name })),
+    );
+    await logWorkout(
+      user.id,
+      "2026-11-03T10:00:00Z",
+      named.map((movement) => ({ movementId: movement.id, reps: 5, weight: 50 })),
+    );
+
+    const { movements } = expectOk(await progression.listMovements(db, user.id, "UTC"));
+
+    expect(movements.map((movement) => movement.name.split(" ").slice(0, -1).join(" "))).toEqual([
+      "Arnold Press",
+      "bench press",
+      "curl",
+    ]);
+  });
+
+  test("counts Training Days in the user's time zone, with the body-weight flag", async () => {
+    const user = await createUser(db);
+    const pullUp = await createMovement(db, user.id, { name: "Pull-up", isBodyWeight: true });
+    expectOk(await bodyWeight.record(db, user.id, { date: "2026-11-01", weight: 172.4 }, "UTC"));
+    // 23:00 on Nov 6 in São Paulo, then the afternoon of Nov 7: two days there, one in UTC.
+    await logWorkout(user.id, "2026-11-07T02:00:00Z", [{ movementId: pullUp.id, reps: 5, weight: 0 }]);
+    await logWorkout(user.id, "2026-11-07T15:00:00Z", [{ movementId: pullUp.id, reps: 5, weight: 0 }]);
+
+    const inSaoPaulo = expectOk(await progression.listMovements(db, user.id, saoPaulo));
+    const inUtc = expectOk(await progression.listMovements(db, user.id, "UTC"));
+
+    expect(inSaoPaulo.movements).toEqual([{ id: pullUp.id, name: pullUp.name, isBodyWeight: true, trainingDays: 2 }]);
+    expect(inUtc.movements.map((movement) => movement.trainingDays)).toEqual([1]);
+  });
+
+  test("never lists another user's Movements", async () => {
+    const owner = await createUser(db);
+    const otherUser = await createUser(db);
+    const bench = await createMovement(db, owner.id);
+    await logWorkout(owner.id, "2026-11-03T10:00:00Z", [{ movementId: bench.id, reps: 5, weight: 100 }]);
+
+    expect(await progression.listMovements(db, otherUser.id, "UTC")).toEqual({ ok: true, movements: [] });
+  });
+
+  test("returns invalid-time-zone for a zone Postgres doesn't know", async () => {
+    const user = await createUser(db);
+    const bench = await createMovement(db, user.id);
+    await logWorkout(user.id, "2026-11-03T10:00:00Z", [{ movementId: bench.id, reps: 5, weight: 100 }]);
+
+    expect(await progression.listMovements(db, user.id, "Mars/Olympus")).toEqual({
+      ok: false,
+      reason: "invalid-time-zone",
+    });
+  });
+});
