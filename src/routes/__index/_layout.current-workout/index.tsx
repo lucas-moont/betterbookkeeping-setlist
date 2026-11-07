@@ -9,6 +9,8 @@ import {
   startWorkoutMutationOptions,
 } from "@/lib/workouts/queries";
 import { movementsQueryOptions } from "@/lib/movements/queries";
+import { bodyWeightEntriesQueryOptions } from "@/lib/body-weight/queries";
+import { latestEntry } from "@/lib/body-weight/entry";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useTimeZone } from "@/lib/time-zone";
@@ -21,6 +23,7 @@ export const Route = createFileRoute("/__index/_layout/current-workout/")({
     await Promise.all([
       context.queryClient.ensureQueryData(currentWorkoutQueryOptions()),
       context.queryClient.ensureQueryData(movementsQueryOptions()),
+      context.queryClient.ensureQueryData(bodyWeightEntriesQueryOptions()),
     ]);
   },
   component: CurrentWorkoutPage,
@@ -29,6 +32,7 @@ export const Route = createFileRoute("/__index/_layout/current-workout/")({
 function CurrentWorkoutPage() {
   const { data: workout } = useSuspenseQuery(currentWorkoutQueryOptions());
   const { data: movements } = useSuspenseQuery(movementsQueryOptions());
+  const { data: bodyWeightEntries } = useSuspenseQuery(bodyWeightEntriesQueryOptions());
   const timeZone = useTimeZone();
 
   const startWorkoutMutation = useMutation(startWorkoutMutationOptions());
@@ -75,7 +79,7 @@ function CurrentWorkoutPage() {
         )}
         {/* CardContent drops its top padding for the header above it; with no header, it keeps it. */}
         <CardContent className={cn("space-y-4", !hasHeader && "pt-6")}>
-          <SetForm movements={movements} />
+          <SetForm movements={movements} latestBodyWeight={latestEntry(bodyWeightEntries)} />
           <SetList sets={workout.sets} />
         </CardContent>
       </Card>

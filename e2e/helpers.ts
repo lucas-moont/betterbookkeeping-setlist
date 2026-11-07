@@ -30,6 +30,13 @@ export async function createMovement(page: Page, name: string, { muscleGroup, bo
   await expect(page.getByRole("listitem").filter({ hasText: name })).toBeVisible();
 }
 
+/** Records a body weight from the Profile, which must already be open, on the form's date (today unless the test picked one). */
+export async function recordBodyWeight(page: Page, weight: number) {
+  await page.getByLabel("Weight in pounds").fill(String(weight));
+  await page.getByRole("button", { name: /^(Record|Replace)$/ }).click();
+  await expect(page.getByRole("status")).toContainText(/^(Recorded|Replaced)/);
+}
+
 /** Starts a workout and waits until the Current Workout page shows it. */
 export async function startWorkout(page: Page) {
   await openPage(page, "/current-workout");
@@ -53,7 +60,7 @@ export async function addSet(page: Page, set: NewSet) {
   const rows = setRows(page, set.movement);
   const before = await rows.count();
   await page.getByLabel("Movement", { exact: true }).selectOption({ label: set.movement });
-  await page.getByLabel("Weight").fill(String(set.weight));
+  await page.getByLabel("Weight", { exact: true }).fill(String(set.weight));
   await page.getByLabel("Reps").fill(String(set.reps));
   await page.getByLabel("Number of sets").fill(String(count));
   await addSetButton(page).click();

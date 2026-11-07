@@ -1,12 +1,5 @@
 import { test, expect, type Page } from "./fixtures";
-import { openPage, signOut, signUpAsNewUser } from "./helpers";
-
-/** Records a body weight from the Profile, on the form's date (today unless the test picked one). */
-async function recordBodyWeight(page: Page, weight: number) {
-  await page.getByLabel("Weight in pounds").fill(String(weight));
-  await page.getByRole("button", { name: /^(Record|Replace)$/ }).click();
-  await expect(page.getByRole("status")).toContainText(/^(Recorded|Replaced)/);
-}
+import { openPage, recordBodyWeight, signOut, signUpAsNewUser } from "./helpers";
 
 function entryRows(page: Page) {
   return page.getByRole("listitem");
