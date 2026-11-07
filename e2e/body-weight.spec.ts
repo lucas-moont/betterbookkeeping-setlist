@@ -22,6 +22,22 @@ test.describe("Body Weight", () => {
     await expect(page.getByRole("heading", { name: "Profile" })).toBeVisible();
   });
 
+  test("should keep the user's block in view and scroll a Profile taller than the window", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 500 });
+    await openPage(page, "/profile");
+    await recordBodyWeight(page, 172.4);
+    const deleteButton = page.getByRole("button", { name: /^Delete entry for / });
+    await expect(page.getByRole("link", { name: /Logged in as/ })).toBeInViewport();
+    await expect(deleteButton).not.toBeInViewport();
+
+    // The wheel, not a programmatic scroll: a clipped page still scrolls from code but never by hand.
+    await page.getByRole("heading", { name: "Profile" }).hover();
+    await page.mouse.wheel(0, 2000);
+
+    await expect(deleteButton).toBeInViewport();
+    await expect(page.getByRole("link", { name: /Logged in as/ })).toBeInViewport();
+  });
+
   test("should show a weight recorded today in the list, the Latest line and the chart", async ({ page }) => {
     await openPage(page, "/profile");
     await expect(page.getByText("No body weight recorded yet.")).toBeVisible();
