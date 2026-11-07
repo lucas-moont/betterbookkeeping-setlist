@@ -26,7 +26,11 @@ export type CompletedWorkout = { id: string; completedAt: Date; sets: WorkoutSet
 const workoutSelect = {
   id: true,
   completedAt: true,
-  sets: { select: { id: true, reps: true, weight: true, movement: { select: movementSelect } } },
+  sets: {
+    // createdAt, then id: Sets added in one request share a createdAt (ADR 0007, ADR 0011).
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }] as Prisma.SetOrderByWithRelationInput[],
+    select: { id: true, reps: true, weight: true, movement: { select: movementSelect } },
+  },
 } as const;
 
 type SetRow = Prisma.SetGetPayload<{ select: typeof workoutSelect.sets.select }>;
@@ -63,10 +67,7 @@ async function findCurrentWorkoutId(db: DbClient, userId: string): Promise<strin
   return workout?.id ?? null;
 }
 
-/**
- * The user's Current Workout with its Sets, or null when there is none. The Sets come in no defined
- * order until they record when they were logged (ADR 0007).
- */
+/** The user's Current Workout with its Sets in the order they were added, or null when there is none. */
 export const get = createServerOnlyFn(async (db: DbClient, userId: string): Promise<CurrentWorkout | null> => {
   const workout = await db.workout.findFirst({
     where: currentWorkoutWhere(userId),

@@ -62,6 +62,8 @@ model Set {
   movement   Movement @relation(fields: [movementId], references: [id])
   reps       Int
   weight     Decimal  @db.Decimal(6, 2)
+  // Sets are listed by createdAt, then id (ADR 0007). Legacy sets got the migration time.
+  createdAt  DateTime @default(now())
 
   @@index([workoutId])
   @@index([movementId])

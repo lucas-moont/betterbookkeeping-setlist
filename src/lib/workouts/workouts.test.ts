@@ -256,6 +256,21 @@ describe("history", () => {
   });
 });
 
+describe("Set order", () => {
+  test("get and history return the Sets in the order they were added", async () => {
+    const user = await createUser(db);
+    const movement = await createMovement(db, user.id);
+    await workouts.start(db, user.id);
+    // Neither ascending nor descending, so a sort by reps can't pass by accident.
+    const added = [];
+    for (const reps of [8, 3, 5]) added.push(await logSet(user.id, movement.id, { reps }));
+
+    expect((await workouts.get(db, user.id))?.sets.map((set) => set.id)).toEqual(added.map((set) => set.id));
+    expectOk(await workouts.complete(db, user.id));
+    expect((await workouts.history(db, user.id))[0].sets.map((set) => set.id)).toEqual(added.map((set) => set.id));
+  });
+});
+
 describe("deleteWorkouts", () => {
   test("deletes every workout in the list, Sets included", async () => {
     const user = await createUser(db);

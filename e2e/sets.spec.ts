@@ -94,9 +94,20 @@ test.describe("Sets", () => {
       await expect(page.getByRole("listitem").filter({ hasText: movement })).toHaveText(`${movement}8 reps × 95 lb`);
     });
 
-    // Skipped until LUC-134 adds Set.createdAt: sets have no defined order yet.
-    test.skip("should show sets in the order they were added", async ({ page }) => {
-      // TODO: Implement this test
+    test("should show sets in the order they were added", async ({ page }) => {
+      const movement = `Romanian Deadlift ${uniqueToken()}`;
+      await createMovement(page, movement);
+      await startWorkout(page);
+      // Neither ascending nor descending, so a sort by reps or weight can't pass by accident.
+      for (const reps of [8, 3, 5]) await addSet(page, { movement, weight: 135, reps });
+
+      await openPage(page, "/current-workout");
+
+      await expect(page.getByRole("listitem").filter({ hasText: movement })).toHaveText([
+        /8 reps/,
+        /3 reps/,
+        /5 reps/,
+      ]);
     });
   });
 
