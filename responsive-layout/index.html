@@ -1,0 +1,592 @@
+<!doctype html>
+<!--
+  PROTOTYPE, throwaway. Not production code.
+  Question: how does Setlist navigate on a phone (bottom tab bar, menu drawer, or top tabs),
+  and do the approved screens work at 375 px (iPhone SE) without zoom or sideways scrolling?
+  Three variants of the mobile navigation, switchable with ?variant=A|B|C and the bar at the bottom.
+  ?view=mobile (default, 375 × 667) | desktop | both. The pages are the approved layouts:
+  Current Workout (body-weight set form A + empty-workout dialog A), Workout History (progression C
+  + Gym Visit row), Movements (as today), Profile (Body Weight A). Everything is in memory.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Prototype · Responsive layout · Mobile navigation</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+    <style type="text/tailwindcss">
+      @theme {
+        --color-primary: oklch(55% 0.2 35);
+      }
+      ::selection {
+        background: oklch(55% 0.2 35 / 0.18);
+      }
+      /* Anything clickable shows the pointer (Tailwind v4's preflight leaves buttons on the default cursor). */
+      button:not(:disabled),
+      [role="button"]:not([aria-disabled="true"]),
+      a[href],
+      select:not(:disabled),
+      summary,
+      label[for],
+      input[type="checkbox"]:not(:disabled),
+      input[type="radio"]:not(:disabled) {
+        cursor: pointer;
+      }
+      .tabular {
+        font-variant-numeric: tabular-nums;
+      }
+      @keyframes drawer-in { from { transform: translateX(-100%); } to { transform: none; } }
+      @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes pop-in { from { transform: translateY(-4px); opacity: 0; } to { transform: none; opacity: 1; } }
+      .anim-drawer { animation: drawer-in 180ms ease-out; }
+      .anim-fade { animation: fade-in 120ms ease-out; }
+      .anim-pop { animation: pop-in 120ms ease-out; }
+      @keyframes drawer-out { from { transform: none; } to { transform: translateX(-100%); } }
+      @keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
+      .anim-drawer-out { animation: drawer-out 160ms ease-in forwards; }
+      .anim-fade-out { animation: fade-out 160ms ease-in forwards; }
+      @media (prefers-reduced-motion: reduce) {
+        .anim-drawer, .anim-fade, .anim-pop, .anim-drawer-out, .anim-fade-out { animation: none; }
+      }
+    </style>
+  </head>
+  <body class="bg-slate-50 text-slate-900 antialiased">
+    <div id="app"></div>
+    <div id="bar"></div>
+
+    <script>
+      // ---------- URL params ----------
+      const params = new URLSearchParams(location.search);
+      const VARIANTS = [
+        { key: "A", name: "Bottom tab bar" },
+        { key: "B", name: "Menu drawer" },
+        { key: "C", name: "Top tabs + avatar menu" },
+      ];
+      let variant = VARIANTS.some((v) => v.key === params.get("variant")) ? params.get("variant") : "A";
+      let view = ["desktop", "mobile", "both"].includes(params.get("view")) ? params.get("view") : "mobile";
+      const embedded = params.get("embed") === "1";
+      const PAGES = [
+        { key: "workout", label: "Current Workout", short: "Workout", icon: "dumbbell" },
+        { key: "history", label: "Workout History", short: "History", icon: "history" },
+        { key: "movements", label: "Movements", short: "Movements", icon: "biceps-flexed" },
+        { key: "profile", label: "Profile", short: "Profile", icon: "user" },
+      ];
+      const firstPage = PAGES.some((p) => p.key === params.get("page")) ? params.get("page") : "workout";
+
+      // ---------- Dates and numbers ----------
+      const pad = (n) => String(n).padStart(2, "0");
+      const toISO = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      const fromISO = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const TODAY = toISO(today);
+      const daysAgo = (n) => { const d = new Date(today); d.setDate(d.getDate() - n); return toISO(d); };
+      const fmtShort = (s) => fromISO(s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      const fmtLong = (s) => fromISO(s).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+      const fmtW = (v) => (Math.round(v * 100) / 100).toLocaleString("en-US", { maximumFractionDigits: 2 });
+
+      // ---------- Sample data (synthetic) ----------
+      const MOVEMENTS = [
+        { id: "bench", name: "Bench Press" },
+        { id: "squat", name: "Back Squat" },
+        { id: "deadlift", name: "Deadlift" },
+        { id: "pullup", name: "Pull-up", bodyWeight: true },
+        { id: "row", name: "Barbell Row" },
+        { id: "ohp", name: "Overhead Press" },
+      ];
+      const mv = (id) => MOVEMENTS.find((m) => m.id === id);
+      const BODY_WEIGHT = [
+        [150, 178.6], [141, 178.8], [132, 177.4], [123, 176.9], [114, 176.8], [109, 176.1],
+        [86, 175.2], [77, 174.9], [63, 174.7], [49, 173.5], [35, 173.1], [21, 173.4], [9, 173.1], [2, 172.4],
+      ].map(([d, w]) => ({ date: daysAgo(d), weight: w }));
+      // Bench Press Max Weight, one point per Training Day, with a 3-week gap.
+      const BENCH = [
+        [120, 175], [116, 175], [113, 180], [109, 180], [106, 180], [102, 185], [99, 185], [95, 185],
+        [71, 185], [67, 190], [64, 190], [60, 190], [57, 195], [53, 195], [46, 195], [43, 200], [39, 200], [32, 200], [25, 205], [18, 205], [11, 205], [4, 205],
+      ].map(([d, w]) => ({ date: daysAgo(d), weight: w }));
+      function initialData() {
+        return {
+          current: { sets: [{ movementId: "bench", weight: 185, addedWeight: null, note: null, reps: 6 }, { movementId: "pullup", weight: 172.4, addedWeight: 25, note: "weighted vest", reps: 6 }] },
+          history: [
+            { id: "h1", date: daysAgo(2), sets: [["squat", 255, 5], ["squat", 255, 5], ["row", 155, 8], ["row", 155, 8]] },
+            { id: "h2", date: daysAgo(4), sets: [] },
+            { id: "h3", date: daysAgo(7), sets: [["bench", 205, 6], ["bench", 200, 7], ["deadlift", 315, 4], ["pullup", 172.4, 9]] },
+            { id: "h4", date: daysAgo(9), sets: [["squat", 250, 5], ["ohp", 115, 6], ["ohp", 115, 5]] },
+          ],
+          bodyWeight: BODY_WEIGHT.map((e) => ({ ...e })),
+        };
+      }
+
+      // ---------- State (in memory) ----------
+      const state = {
+        ...initialData(),
+        page: firstPage,
+        drawerOpen: false,
+        drawerClosing: false,
+        signedOut: false,
+        menuOpen: false,
+        dialogOpen: false,
+        notice: "",
+        form: { movementId: "", weight: "", reps: "" },
+        added: { open: false, sign: 1, amount: "", note: "" },
+        bwForm: { date: TODAY, weight: "" },
+        mvQuery: "",
+        metric: "maxWeight",
+        period: "all",
+      };
+      const latestBW = () => [...state.bodyWeight].sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+
+      // ---------- Shared pieces ----------
+      const icon = (name, cls = "w-4 h-4") => `<i data-lucide="${name}" class="${cls}"></i>`;
+      const WORDMARK = (cls = "h-6 w-auto") => `<svg width="136" height="36" viewBox="0 0 136 36" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Setlist" class="${cls}">
+        <rect width="36" height="36" rx="9" fill="#cc2d00"/>
+        <rect x="8" y="9" width="20" height="4" rx="2" fill="#ffffff"/>
+        <rect x="8" y="16" width="14" height="4" rx="2" fill="#ffffff"/>
+        <rect x="8" y="23" width="8" height="4" rx="2" fill="#ffffff"/>
+        <text x="46" y="27" fill="#0f172a" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="26" font-weight="700" letter-spacing="-0.5">Setlist</text>
+      </svg>`;
+      const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50";
+      // 44 px tall on phones (touch target), 40 px from sm up, like the primitives today.
+      const inputCls = `flex h-11 sm:h-10 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-base sm:text-sm placeholder:text-gray-400 ${focusRing} focus-visible:border-primary`;
+      const btn = {
+        primary: `inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition-colors bg-primary text-white hover:bg-primary/90 shadow-sm ${focusRing} focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50`,
+        outline: `inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition-colors border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-400 ${focusRing}`,
+        ghost: `inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition-colors text-gray-700 hover:bg-gray-100 hover:text-gray-900 ${focusRing}`,
+        danger: `inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition-colors border border-red-200 bg-white text-red-700 hover:bg-red-50 hover:border-red-300 ${focusRing}`,
+        destructive: `inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition-colors bg-red-600 text-white hover:bg-red-700 shadow-sm ${focusRing} disabled:pointer-events-none disabled:opacity-50`,
+      };
+      const card = (inner, cls = "") => `<div class="rounded-xl border border-slate-200 bg-white shadow-sm ${cls}">${inner}</div>`;
+      const cardTitle = (t) => `<h2 class="text-lg font-semibold leading-none tracking-tight text-slate-900">${t}</h2>`;
+      const pageTitle = (t, right = "") => `<div class="flex items-center justify-between gap-3"><h1 class="text-2xl font-semibold text-slate-900 min-w-0">${t}</h1>${right}</div>`;
+
+      // ---------- Desktop sidebar (unchanged in every variant) ----------
+      function sidebar() {
+        const items = PAGES.filter((p) => p.key !== "profile")
+          .map((p) => {
+            const on = state.page === p.key;
+            return `<a href="#" data-go="${p.key}" ${on ? 'aria-current="page"' : ""} class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${on ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}">${icon(p.icon)}${p.label}</a>`;
+          })
+          .join("");
+        const onProfile = state.page === "profile";
+        return `<nav aria-label="Main" class="flex flex-col h-full">
+          <div class="mb-8">${WORDMARK()}</div>
+          <div class="flex flex-col gap-1 flex-1">${items}</div>
+          <div class="border-t border-slate-200 pt-4 mt-4 space-y-2">
+            <a href="#" data-go="profile" ${onProfile ? 'aria-current="page"' : ""} class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${onProfile ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}">
+              ${icon("user")}<div class="truncate"><p class="text-xs text-slate-500">Logged in as</p><p class="font-medium truncate">Alex Rivera</p></div>
+            </a>
+            <button data-logout class="inline-flex items-center gap-3 w-full h-8 px-3 rounded-lg text-sm font-medium text-slate-600 hover:bg-gray-100 hover:text-gray-900 transition-colors">${icon("log-out")}Log out</button>
+          </div>
+        </nav>`;
+      }
+
+      // ---------- Mobile navigation: three variants ----------
+      function mobileTopA() {
+        return `<header class="md:hidden flex items-center h-12 px-4 bg-white border-b border-slate-200">${WORDMARK("h-5 w-auto")}</header>`;
+      }
+      function mobileBottomA() {
+        const tabs = PAGES.map((p) => {
+          const on = state.page === p.key;
+          return `<a href="#" data-go="${p.key}" ${on ? 'aria-current="page"' : ""} class="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-14 py-1.5 text-[11px] font-medium transition-colors ${focusRing} ${on ? "text-slate-900" : "text-slate-500 hover:text-slate-900"}">
+            <span class="inline-flex items-center justify-center h-7 w-12 rounded-full ${on ? "bg-slate-100" : ""}">${icon(p.icon, "w-5 h-5")}</span>${p.short}
+          </a>`;
+        }).join("");
+        const logout = `<button type="button" data-logout class="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-14 py-1.5 text-[11px] font-medium text-slate-500 hover:text-slate-900 transition-colors ${focusRing}">
+            <span class="inline-flex items-center justify-center h-7 w-12 rounded-full">${icon("log-out", "w-5 h-5")}</span>Log out
+          </button>`;
+        return `<nav aria-label="Main" class="md:hidden fixed bottom-0 inset-x-0 z-30 flex bg-white border-t border-slate-200 pb-[env(safe-area-inset-bottom)]">${tabs}${logout}</nav>`;
+      }
+      function mobileTopB() {
+        const p = PAGES.find((x) => x.key === state.page);
+        return `<header class="md:hidden sticky top-0 z-20 flex items-center gap-2 h-14 px-2 bg-white border-b border-slate-200">
+          <button data-drawer aria-label="Open menu" aria-expanded="${state.drawerOpen}" aria-controls="drawer" class="${btn.ghost} h-11 w-11 text-slate-600">${icon("menu", "w-5 h-5")}</button>
+          ${WORDMARK("h-5 w-auto")}
+          <span class="ml-auto pr-2 text-sm text-slate-500 truncate">${p.label}</span>
+        </header>`;
+      }
+      function drawerB() {
+        if (!state.drawerOpen) return "";
+        // While closing, the same drawer slides back out and lets clicks through to the page.
+        const out = state.drawerClosing;
+        return `<div class="md:hidden fixed inset-0 z-40 ${out ? "pointer-events-none" : ""}" ${out ? "inert" : ""}>
+          <div data-scrim class="absolute inset-0 bg-slate-900/40 ${out ? "anim-fade-out" : "anim-fade"}"></div>
+          <div id="drawer" role="dialog" aria-modal="true" aria-label="Menu" class="absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-white border-r border-slate-200 p-4 pt-3 ${out ? "anim-drawer-out" : "anim-drawer"} flex flex-col">
+            <div class="flex justify-end -mr-1 mb-1"><button data-drawer-close aria-label="Close menu" class="${btn.ghost} h-11 w-11 text-slate-500">${icon("x", "w-5 h-5")}</button></div>
+            <div class="flex-1 min-h-0">${sidebar().replace(/py-2 rounded-lg text-sm font-medium/g, "py-3 rounded-lg text-sm font-medium").replace("w-full h-8 px-3", "w-full h-11 px-3")}</div>
+          </div>
+        </div>`;
+      }
+      function mobileTopC() {
+        const tabs = PAGES.filter((p) => p.key !== "profile")
+          .map((p) => {
+            const on = state.page === p.key;
+            return `<a href="#" data-go="${p.key}" ${on ? 'aria-current="page"' : ""} class="flex-1 inline-flex items-center justify-center gap-1.5 h-11 -mb-px border-b-2 text-sm font-medium transition-colors ${focusRing} ${on ? "border-primary text-slate-900" : "border-transparent text-slate-500 hover:text-slate-900"}">${icon(p.icon)}${p.short}</a>`;
+          })
+          .join("");
+        const onProfile = state.page === "profile";
+        const menu = state.menuOpen
+          ? `<div role="menu" aria-label="Account" class="absolute right-2 top-12 z-40 w-56 rounded-xl border border-slate-200 bg-white p-1 shadow-sm anim-pop">
+              <p class="px-3 pt-2 pb-1 text-xs text-slate-500">Logged in as <span class="font-medium text-slate-700">Alex Rivera</span></p>
+              <a href="#" role="menuitem" data-go="profile" class="flex items-center gap-3 px-3 h-11 rounded-lg text-sm text-slate-700 hover:bg-slate-100 ${focusRing}">${icon("user")}Profile</a>
+              <button role="menuitem" data-logout class="w-full flex items-center gap-3 px-3 h-11 rounded-lg text-sm text-slate-700 hover:bg-slate-100 ${focusRing}">${icon("log-out")}Log out</button>
+            </div>`
+          : "";
+        return `<header class="md:hidden sticky top-0 z-20 bg-white border-b border-slate-200">
+          <div class="relative flex items-center justify-between h-12 px-4">
+            ${WORDMARK("h-5 w-auto")}
+            <button data-menu aria-label="Account menu" aria-haspopup="menu" aria-expanded="${state.menuOpen}" class="group -mr-1.5 inline-flex items-center justify-center h-11 w-11 rounded-full ${focusRing}"><span class="inline-flex items-center justify-center h-9 w-9 rounded-full text-xs font-semibold transition-colors ${state.menuOpen || onProfile ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 group-hover:bg-slate-200"}">AR</span></button>
+            ${menu}
+          </div>
+          <nav aria-label="Main" class="flex px-2">${tabs}</nav>
+        </header>`;
+      }
+
+      function shell(content) {
+        const top = { A: mobileTopA, B: mobileTopB, C: mobileTopC }[variant]();
+        const bottom = variant === "A" ? mobileBottomA() : "";
+        return `
+        <div class="min-h-screen md:flex bg-slate-50">
+          <aside class="hidden md:block w-64 shrink-0 bg-white border-r border-slate-200 p-4">${sidebar()}</aside>
+          <div class="flex-1 min-w-0">
+            ${top}
+            <main class="p-4 md:p-6 ${variant === "A" ? "pb-24" : "pb-8"} md:pb-6">${content}</main>
+          </div>
+          ${bottom}
+          ${variant === "B" ? drawerB() : ""}
+        </div>`;
+      }
+
+      // ---------- Pages ----------
+      function workoutPage() {
+        const date = today.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+        if (!state.current)
+          return `<div class="space-y-6">${pageTitle("Current Workout")}
+            ${state.notice ? `<div role="status" class="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">${state.notice}</div>` : ""}
+            ${card(`<div class="py-12 px-6 text-center"><p class="text-slate-500 mb-4">No active workout. Ready to start?</p><button data-start class="${btn.primary} h-12 px-6 text-lg">${icon("play")}Start Workout</button></div>`)}</div>`;
+        const m = mv(state.form.movementId || "x") || null;
+        const isBW = !!m?.bodyWeight;
+        const bw = latestBW();
+        const opts = MOVEMENTS.map((x) => `<option value="${x.id}" ${x.id === state.form.movementId ? "selected" : ""}>${x.name}</option>`).join("");
+        const can = state.form.movementId && state.form.reps && (isBW || state.form.weight);
+        const weightField = isBW
+          ? `<div class="relative sm:w-32"><input name="weight" readonly aria-label="Body weight, from your latest entry" value="${fmtW(bw.weight)}" class="${inputCls} tabular pr-14 bg-slate-50 text-slate-700 cursor-default" /><span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1 text-sm text-slate-400">lbs${icon("lock", "w-3.5 h-3.5")}</span></div>`
+          : `<div class="relative sm:w-32"><input name="weight" aria-label="Weight" type="number" inputmode="decimal" step="0.01" placeholder="Weight" value="${state.form.weight}" class="${inputCls} tabular pr-10" /><span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">lbs</span></div>`;
+        const addBtn = (cls) => `<button type="submit" ${can ? "" : "disabled"} class="${btn.primary} h-11 sm:h-8 px-3 text-base sm:text-sm ${cls}">${icon("plus")}Add</button>`;
+        const added = isBW
+          ? state.added.open
+            ? `<div class="flex flex-col sm:flex-row gap-2 sm:items-center">
+                <div role="group" aria-label="Added weight type" class="flex sm:inline-flex rounded-lg border border-gray-300 bg-white p-0.5">${[[1, "plus", "Extra"], [-1, "minus", "Assistance"]].map(([v, ic, l]) => `<button type="button" data-sign="${v}" aria-pressed="${state.added.sign === v}" class="flex-1 inline-flex items-center justify-center gap-1 h-10 sm:h-8 px-2.5 rounded text-sm font-medium ${state.added.sign === v ? "bg-slate-100 text-slate-900" : "text-slate-600"}">${icon(ic, "w-3.5 h-3.5")}${l}</button>`).join("")}</div>
+                <div class="relative sm:w-28"><input name="amount" aria-label="Added weight in pounds" type="number" inputmode="decimal" placeholder="Amount" value="${state.added.amount}" class="${inputCls} tabular pr-10" /><span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">lbs</span></div>
+                <input name="note" aria-label="Description of the added weight" placeholder="e.g. weighted vest" value="${state.added.note}" class="${inputCls} sm:flex-1" />
+                <button type="button" data-added-close class="${btn.ghost} h-11 sm:h-10 sm:w-10 text-slate-400">${icon("x")}<span class="sm:hidden">Remove added weight</span></button>
+              </div>`
+            : `<button type="button" data-added-open class="${btn.ghost} h-11 sm:h-8 px-2 -ml-2 text-sm text-slate-600">${icon("plus")}Added weight</button>`
+          : "";
+        const rows = state.current.sets.length
+          ? `<ul class="space-y-2">${state.current.sets
+              .map((x, i) => {
+                const comp = x.addedWeight ? `${fmtW(x.weight)} lbs + ${fmtW(x.addedWeight)} lbs <span class="text-slate-400">(${x.note})</span>` : `${fmtW(x.weight)} lbs`;
+                return `<li class="pl-3 pr-1 py-1.5 bg-slate-50 rounded-lg text-sm flex items-center justify-between gap-2"><div class="min-w-0 tabular"><span class="font-medium">${mv(x.movementId).name}</span><span class="text-slate-500 ml-2">${x.reps} reps × ${comp}</span></div>
+                  <button data-remove="${i}" aria-label="Remove set" class="${btn.ghost} shrink-0 h-11 w-11 sm:h-8 sm:w-8 text-slate-400">${icon("x")}</button></li>`;
+              })
+              .join("")}</ul>`
+          : `<p class="text-sm text-slate-500">No sets yet. Add exercises to your workout!</p>`;
+        return `<div class="space-y-6">
+          ${pageTitle("Current Workout", `<button data-complete class="${btn.outline} shrink-0 h-10 px-3 sm:px-4 text-sm">${icon("check")}<span class="sm:hidden">Complete</span><span class="hidden sm:inline">Complete Workout</span></button>`)}
+          ${card(`<div class="p-4 md:p-6">${cardTitle(date)}</div>
+            <div class="px-4 md:px-6 pb-4 md:pb-6 space-y-4">
+              <form data-form novalidate class="space-y-2">
+                <div class="flex flex-col sm:flex-row gap-2 sm:items-center">
+                  <select name="movement" aria-label="Movement" class="${inputCls} sm:flex-1"><option value="">Select movement</option>${opts}</select>
+                  ${weightField}
+                  <input name="reps" aria-label="Reps" type="number" inputmode="numeric" placeholder="Reps" value="${state.form.reps}" class="${inputCls} tabular sm:w-24" />
+                  <div class="hidden sm:block shrink-0">${addBtn("")}</div>
+                </div>
+                ${isBW ? `<p class="flex items-center gap-1.5 text-xs text-slate-500">${icon("lock", "w-3.5 h-3.5 shrink-0")}<span>${m.name} uses your latest body weight: <span class="font-medium text-slate-700 tabular">${fmtW(bw.weight)} lbs</span> from ${fmtShort(bw.date)}.</span></p>` : ""}
+                ${added}
+                <div class="sm:hidden">${addBtn("w-full")}</div>
+              </form>
+              ${rows}
+            </div>`)}
+        </div>`;
+      }
+      function dialog() {
+        if (!state.dialogOpen) return "";
+        return `<div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div data-dialog-scrim class="absolute inset-0 bg-slate-900/40 anim-fade"></div>
+          <div role="dialog" aria-modal="true" aria-labelledby="dlg-title" class="relative w-full max-w-xl rounded-xl border border-slate-200 bg-white shadow-sm">
+            <div class="p-6 space-y-2">
+              <h2 id="dlg-title" tabindex="-1" class="text-lg font-semibold leading-tight text-slate-900 focus:outline-none">This workout has no sets</h2>
+              <p class="text-sm text-slate-500">Save it as a gym visit to keep a record that you went, or discard it. Gym visits show in your history but not in your progress charts.</p>
+            </div>
+            <div class="flex flex-col sm:flex-row sm:justify-end gap-2 px-6 pb-6">
+              <button data-choose="save" class="${btn.outline} h-11 sm:h-10 px-4 text-sm">${icon("calendar-check")}Save as gym visit</button>
+              <button data-choose="discard" class="${btn.danger} h-11 sm:h-10 px-4 text-sm">${icon("trash-2")}Discard workout</button>
+              <button data-choose="keep" class="${btn.ghost} h-11 sm:h-10 px-4 text-sm">${icon("list-plus")}Keep logging</button>
+            </div>
+          </div>
+        </div>`;
+      }
+
+      function historyPage() {
+        const list = MOVEMENTS.filter((m) => m.id !== "x");
+        const metricSeg = [["maxWeight", "Max Weight"], ["totalReps", "Total Reps"], ["totalVolume", "Total Volume"]];
+        const seg = (attr, opts, cur, cls = "") =>
+          `<div role="group" class="flex sm:inline-flex rounded-lg border border-gray-300 bg-white p-0.5 ${cls}">${opts.map(([k, l]) => `<button type="button" data-${attr}="${k}" aria-pressed="${k === cur}" class="flex-1 sm:flex-none h-10 sm:h-8 px-3 rounded text-sm font-medium whitespace-nowrap ${k === cur ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:text-slate-900"}">${l}</button>`).join("")}</div>`;
+        const cols = ["squat", "row", "bench", "deadlift", "pullup", "ohp"].map(mv);
+        const rows = state.history
+          .map((w) => {
+            const check = `<td class="py-3 px-4"><input type="checkbox" aria-label="Select workout" class="rounded border-gray-300 h-4 w-4" /></td>`;
+            const date = `<td class="py-3 px-4 text-slate-500 whitespace-nowrap">${fmtShort(w.date)}</td>`;
+            if (!w.sets.length) return `<tr class="border-b border-slate-100">${check}${date}<td colspan="${cols.length + 1}" class="py-3 px-4 text-slate-500 whitespace-nowrap"><span class="inline-flex items-center gap-2">${icon("calendar-check", "w-4 h-4 text-slate-400")}Gym visit, no sets logged</span></td></tr>`;
+            const cells = cols
+              .map((m) => {
+                const ss = w.sets.filter((x) => x[0] === m.id);
+                if (!ss.length) return `<td class="py-3 px-4 text-right text-slate-300">-</td>`;
+                return `<td class="py-3 px-4 text-right text-slate-600 whitespace-nowrap">${fmtW(Math.max(...ss.map((x) => x[1])))} lbs / ${Math.round(ss.reduce((a, x) => a + x[2], 0) / ss.length)} reps / ${ss.length} sets</td>`;
+              })
+              .join("");
+            return `<tr class="border-b border-slate-100 hover:bg-slate-50">${check}${date}<td class="py-3 px-4 text-right text-slate-600">${w.sets.length}</td>${cells}</tr>`;
+          })
+          .join("");
+        return `<div class="space-y-6">
+          ${pageTitle("Workout History")}
+          ${card(`<div class="p-4 md:p-6">${cardTitle("Progression")}</div>
+            <div class="px-4 md:px-6 pb-4 md:pb-6 space-y-3">
+              <div class="space-y-2"><label for="h-mv" class="text-sm font-medium text-gray-700">Movement</label>
+                <div class="relative"><span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">${icon("search")}</span><input id="h-mv" type="search" role="combobox" aria-expanded="false" placeholder="Search movements" value="Bench Press" class="${inputCls} pl-9" /></div>
+              </div>
+              <div class="flex flex-col sm:flex-row sm:justify-between gap-2">${seg("metric", metricSeg, state.metric)}${seg("period", [["3m", "3M"], ["1y", "1Y"], ["all", "All"]], state.period)}</div>
+              <p class="text-sm text-slate-500 tabular">Latest: <span class="font-medium text-slate-900">205 lbs</span> on ${fmtShort(BENCH[BENCH.length - 1].date)}</p>
+              <div data-chart="bench" class="relative w-full overflow-hidden -mx-1" style="height:220px"></div>
+              <p class="text-xs text-slate-500">One point per Training Day.</p>
+            </div>`)}
+          ${card(`<div class="flex items-center justify-between gap-3 p-4 md:p-6">${cardTitle("Completed Workouts")}<button disabled class="${btn.destructive} shrink-0 h-10 sm:h-8 px-3 text-sm">${icon("trash-2")}<span class="sm:hidden">Delete (0)</span><span class="hidden sm:inline">Delete Selected (0)</span></button></div>
+            <div class="pb-4 md:pb-6">
+              <div class="overflow-x-auto px-4 md:px-6" tabindex="0" aria-label="Completed workouts table, scrolls sideways">
+                <table class="w-full text-sm tabular min-w-max">
+                  <thead><tr class="border-b border-slate-200"><th class="py-3 px-4"><input type="checkbox" aria-label="Select all workouts" class="rounded border-gray-300 h-4 w-4" /></th><th class="text-left py-3 px-4 font-medium text-slate-600">Date</th><th class="text-right py-3 px-4 font-medium text-slate-600">Sets</th>${cols.map((m) => `<th class="text-right py-3 px-4 font-medium text-slate-600 whitespace-nowrap">${m.name}</th>`).join("")}</tr></thead>
+                  <tbody>${rows}</tbody>
+                </table>
+              </div>
+              <p class="sm:hidden px-4 pt-2 text-xs text-slate-400 flex items-center gap-1">${icon("arrow-left-right", "w-3.5 h-3.5")}Swipe the table sideways to see every movement.</p>
+            </div>`)}
+        </div>`;
+      }
+
+      function movementsPage() {
+        return `<div class="space-y-6">
+          ${pageTitle("Movements")}
+          ${card(`<div class="p-4 md:p-6">${cardTitle("Add New Movement")}</div>
+            <div class="px-4 md:px-6 pb-4 md:pb-6"><form class="flex flex-col sm:flex-row gap-2 sm:gap-3"><input aria-label="Movement name" placeholder="Movement name (e.g. Bench Press)" class="${inputCls} sm:flex-1" /><button type="button" disabled class="${btn.primary} h-11 sm:h-10 px-4 text-base sm:text-sm">Add</button></form></div>`)}
+          ${card(`<div class="p-4 md:p-6">${cardTitle("All Movements")}</div>
+            <div class="px-4 md:px-6 pb-4 md:pb-6"><ul class="space-y-2">${MOVEMENTS.map((m) => `<li class="px-3 py-2.5 bg-slate-50 rounded-lg text-sm font-medium text-slate-700">${m.name}</li>`).join("")}</ul></div>`)}
+        </div>`;
+      }
+
+      function profilePage() {
+        const l = latestBW();
+        const rows = [...state.bodyWeight].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 6)
+          .map((e) => `<li class="pl-3 pr-1 py-1.5 bg-slate-50 rounded-lg text-sm flex items-center justify-between"><div class="tabular"><span class="font-medium">${fmtW(e.weight)} lbs</span><span class="text-slate-500 ml-2">${fmtLong(e.date)}</span></div><button aria-label="Delete entry" class="${btn.ghost} h-11 w-11 sm:h-8 sm:w-8 text-slate-400">${icon("x")}</button></li>`)
+          .join("");
+        return `<div class="space-y-6">
+          ${pageTitle("Profile")}
+          ${card(`<div class="flex flex-col gap-2 p-4 md:p-6">${cardTitle("Body Weight")}<p class="text-sm text-slate-500 tabular">Latest: <span class="font-medium text-slate-900">${fmtW(l.weight)} lbs</span> on ${fmtShort(l.date)}</p></div>
+            <div class="px-2 md:px-4 pb-4"><div data-chart="bw" class="relative w-full overflow-hidden" style="height:220px"></div></div>`)}
+          ${card(`<div class="p-4 md:p-6">${cardTitle("Entries")}</div>
+            <div class="px-4 md:px-6 pb-4 md:pb-6 space-y-4">
+              <form class="flex flex-col sm:flex-row gap-2 sm:items-center"><input type="date" aria-label="Date" value="${TODAY}" class="${inputCls} tabular sm:w-44" /><div class="relative sm:w-36"><input type="number" inputmode="decimal" aria-label="Weight in pounds" placeholder="Weight" class="${inputCls} tabular pr-10" /><span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">lbs</span></div><button type="button" disabled class="${btn.primary} h-11 sm:h-8 px-3 text-base sm:text-sm">${icon("plus")}Record</button></form>
+              <ul class="space-y-2">${rows}</ul>
+            </div>`)}
+          ${variant === "A" ? card(`<div class="p-4 md:p-6 flex items-center justify-between gap-3 md:hidden"><div class="text-sm"><p class="text-slate-500 text-xs">Logged in as</p><p class="font-medium">Alex Rivera</p></div></div>`, "md:hidden") : ""}
+        </div>`;
+      }
+
+      // ---------- Small line chart (same look as the approved charts) ----------
+      function drawCharts() {
+        app.querySelectorAll("[data-chart]").forEach((el) => {
+          const pts = (el.dataset.chart === "bw" ? state.bodyWeight.map((e) => ({ date: e.date, v: e.weight })) : BENCH.map((e) => ({ date: e.date, v: e.weight })))
+            .map((p) => ({ ...p, t: fromISO(p.date).getTime() })).sort((a, b) => a.t - b.t);
+          const W = el.clientWidth, H = el.clientHeight;
+          if (!W) return;
+          const m = { l: 40, r: 10, t: 10, b: 24 };
+          const t0 = pts[0].t, t1 = today.getTime();
+          const vs = pts.map((p) => p.v);
+          const step = el.dataset.chart === "bw" ? 2 : 10;
+          const y0 = Math.floor((Math.min(...vs) - step / 2) / step) * step, y1 = Math.ceil((Math.max(...vs) + step / 2) / step) * step;
+          const x = (t) => m.l + ((t - t0) / (t1 - t0)) * (W - m.l - m.r);
+          const y = (v) => m.t + (1 - (v - y0) / (y1 - y0)) * (H - m.t - m.b);
+          let g = "";
+          for (let v = y0; v <= y1; v += step) g += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="#e2e8f0"/><text x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="#64748b">${v}</text>`;
+          let xt = "", last = -1e9;
+          const d = new Date(t0); d.setDate(1); d.setMonth(d.getMonth() + 1);
+          while (d.getTime() <= t1) { const xx = x(d.getTime()); if (xx - last >= 44) { xt += `<text x="${xx}" y="${H - 6}" text-anchor="middle" font-size="11" fill="#64748b">${d.toLocaleDateString("en-US", { month: "short" })}</text>`; last = xx; } d.setMonth(d.getMonth() + 1); }
+          const path = pts.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(" ");
+          const dots = (W - m.l - m.r) / pts.length < 8 ? "" : pts.map((p) => `<circle cx="${x(p.t)}" cy="${y(p.v)}" r="2.5" fill="#fff" stroke="oklch(55% 0.2 35)" stroke-width="2"/>`).join("");
+          el.innerHTML = `<svg width="${W}" height="${H}" class="block tabular" role="img" aria-label="Line chart">${g}<line x1="${m.l}" x2="${W - m.r}" y1="${H - m.b}" y2="${H - m.b}" stroke="#cbd5e1"/>${xt}<path d="${path}" fill="none" stroke="oklch(55% 0.2 35)" stroke-width="2" stroke-linejoin="round"/>${dots}</svg>`;
+        });
+      }
+
+      // ---------- Render ----------
+      const app = document.getElementById("app");
+      const bar = document.getElementById("bar");
+      function setParam(k, v) { const p = new URLSearchParams(location.search); p.set(k, v); history.replaceState(null, "", `${location.pathname}?${p}`); }
+      function renderFrames() {
+        const src = (w) => `${location.pathname}?variant=${variant}&page=${state.page}&embed=1&w=${w}`;
+        const phone = `<div class="flex flex-col gap-2 shrink-0"><p class="text-xs font-medium text-slate-500">iPhone SE · 375 × 667</p>
+          <iframe title="Mobile" src="${src(375)}" class="bg-white rounded-xl border border-slate-300 shadow-sm" style="width:375px;height:667px"></iframe></div>`;
+        if (view === "mobile") { app.innerHTML = `<div class="min-h-screen flex justify-center p-6 pb-28 bg-slate-200">${phone}</div>`; return; }
+        const sc = Math.min(1, (window.innerWidth - 48 - 24 - 377) / 1280);
+        app.innerHTML = `<div class="min-h-screen flex gap-6 items-start p-6 pb-28 bg-slate-200">
+          <div class="flex flex-col gap-2 shrink-0"><p class="text-xs font-medium text-slate-500">Desktop · 1280 px${sc < 1 ? ` (shown at ${Math.round(sc * 100)}%)` : ""}</p>
+            <div style="width:${1280 * sc}px;height:${800 * sc}px" class="overflow-hidden rounded-xl border border-slate-300 shadow-sm bg-white"><iframe title="Desktop" src="${src(1280)}" style="width:1280px;height:800px;transform:scale(${sc});transform-origin:top left"></iframe></div>
+          </div>${phone}</div>`;
+      }
+      function render() {
+        if (!embedded && view !== "desktop") renderFrames();
+        else {
+          const page = { workout: workoutPage, history: historyPage, movements: movementsPage, profile: profilePage }[state.page]();
+          // Stand-in for /sign-in, so Log out has somewhere to go in the prototype.
+          app.innerHTML = state.signedOut
+            ? `<div class="min-h-screen flex items-center justify-center p-4 bg-slate-50">${card(`<div class="p-6 w-80 max-w-full text-center space-y-4">${WORDMARK("h-7 w-auto mx-auto")}<p role="status" class="text-sm text-slate-600">You're logged out.</p><button data-login class="${btn.primary} h-11 sm:h-10 w-full px-4">Log in again</button><p class="text-xs text-slate-400">Prototype: stands in for the sign-in page.</p></div>`)}</div>`
+            : shell(page) + dialog();
+          bindPage();
+          drawCharts();
+          if (state.dialogOpen) app.querySelector("#dlg-title")?.focus();
+          if (state.drawerOpen && !state.drawerClosing) app.querySelector("#drawer [aria-current=page]")?.focus();
+        }
+        if (!embedded) renderBar();
+        if (window.lucide) lucide.createIcons();
+      }
+      // Plays the slide-out, then removes the drawer. `before` runs first (e.g. switch page,
+      // so the new page is already underneath while the drawer leaves).
+      const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      let closeTimer;
+      function closeDrawer({ before, focus } = {}) {
+        if (!state.drawerOpen || state.drawerClosing) return;
+        before?.();
+        const finish = () => {
+          state.drawerOpen = false;
+          state.drawerClosing = false;
+          render();
+          if (focus) app.querySelector(focus)?.focus();
+        };
+        if (reducedMotion()) return finish();
+        state.drawerClosing = true;
+        render();
+        clearTimeout(closeTimer);
+        closeTimer = setTimeout(finish, 160);
+      }
+      function go(page) {
+        const apply = () => {
+          state.page = page;
+          state.menuOpen = false;
+          if (!embedded) setParam("page", page);
+        };
+        if (state.drawerOpen) closeDrawer({ before: apply });
+        else { apply(); render(); }
+        window.scrollTo(0, 0);
+      }
+      function bindPage() {
+        app.querySelectorAll("[data-go]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); go(a.dataset.go); }));
+        app.querySelector("[data-drawer]")?.addEventListener("click", () => { state.drawerOpen = true; render(); });
+        app.querySelector("[data-drawer-close]")?.addEventListener("click", () => closeDrawer({ focus: "[data-drawer]" }));
+        app.querySelector("[data-scrim]")?.addEventListener("click", () => closeDrawer({ focus: "[data-drawer]" }));
+        app.querySelector("[data-menu]")?.addEventListener("click", (e) => { e.stopPropagation(); state.menuOpen = !state.menuOpen; render(); if (state.menuOpen) app.querySelector("[role=menuitem]")?.focus(); });
+        app.querySelectorAll("[data-logout]").forEach((b) => b.addEventListener("click", () => {
+          clearTimeout(closeTimer);
+          Object.assign(state, { signedOut: true, drawerOpen: false, drawerClosing: false, menuOpen: false, dialogOpen: false });
+          render();
+          app.querySelector("[data-login]")?.focus();
+        }));
+        app.querySelector("[data-login]")?.addEventListener("click", () => { state.signedOut = false; go("workout"); });
+        app.querySelector("[data-start]")?.addEventListener("click", () => { state.current = { sets: [] }; state.notice = ""; render(); });
+        app.querySelector("[data-complete]")?.addEventListener("click", () => {
+          if (!state.current.sets.length) { state.dialogOpen = true; render(); return; }
+          state.history.unshift({ id: `h${Date.now()}`, date: TODAY, sets: state.current.sets.map((x) => [x.movementId, x.weight + (x.addedWeight || 0), x.reps]) });
+          state.current = null; state.notice = "Workout completed."; render();
+        });
+        app.querySelectorAll("[data-choose]").forEach((b) => b.addEventListener("click", () => {
+          const k = b.dataset.choose;
+          state.dialogOpen = false;
+          if (k === "save") { state.history.unshift({ id: `h${Date.now()}`, date: TODAY, sets: [] }); state.current = null; state.notice = "Saved as a gym visit."; }
+          if (k === "discard") { state.current = null; state.notice = "Workout discarded."; }
+          render();
+        }));
+        app.querySelector("[data-dialog-scrim]")?.addEventListener("click", () => { state.dialogOpen = false; render(); });
+        app.querySelectorAll("[data-remove]").forEach((b) => b.addEventListener("click", () => { state.current.sets.splice(Number(b.dataset.remove), 1); render(); }));
+        app.querySelectorAll("[data-metric]").forEach((b) => b.addEventListener("click", () => { state.metric = b.dataset.metric; render(); }));
+        app.querySelectorAll("[data-period]").forEach((b) => b.addEventListener("click", () => { state.period = b.dataset.period; render(); }));
+        app.querySelector("[data-added-open]")?.addEventListener("click", () => { state.added.open = true; render(); });
+        app.querySelector("[data-added-close]")?.addEventListener("click", () => { state.added = { open: false, sign: 1, amount: "", note: "" }; render(); });
+        app.querySelectorAll("[data-sign]").forEach((b) => b.addEventListener("click", () => { state.added.sign = Number(b.dataset.sign); render(); }));
+        const f = app.querySelector("[data-form]");
+        if (f) {
+          f.querySelector('[name="movement"]').addEventListener("change", (e) => { state.form.movementId = e.target.value; render(); });
+          const sync = () => f.querySelectorAll('button[type="submit"]').forEach((b) => (b.disabled = !(state.form.movementId && state.form.reps && (mv(state.form.movementId)?.bodyWeight || state.form.weight))));
+          f.querySelector('[name="weight"]')?.addEventListener("input", (e) => { state.form.weight = e.target.value; sync(); });
+          f.querySelector('[name="reps"]').addEventListener("input", (e) => { state.form.reps = e.target.value; sync(); });
+          f.querySelector('[name="amount"]')?.addEventListener("input", (e) => (state.added.amount = e.target.value));
+          f.querySelector('[name="note"]')?.addEventListener("input", (e) => (state.added.note = e.target.value));
+          f.addEventListener("submit", (e) => {
+            e.preventDefault();
+            const m = mv(state.form.movementId);
+            const a = m.bodyWeight && state.added.open && Number(state.added.amount) ? state.added.sign * Number(state.added.amount) : null;
+            state.current.sets.push({ movementId: m.id, weight: m.bodyWeight ? latestBW().weight : Number(state.form.weight), addedWeight: a, note: a ? state.added.note || "added weight" : null, reps: Number(state.form.reps) });
+            state.form.reps = "";
+            render();
+          });
+        }
+      }
+      document.addEventListener("click", (e) => { if (state.menuOpen && !e.target.closest("[role=menu]") && !e.target.closest("[data-menu]")) { state.menuOpen = false; render(); } });
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && state.drawerOpen) { closeDrawer({ focus: "[data-drawer]" }); return; }
+        if (e.key === "Escape" && (state.menuOpen || state.dialogOpen)) {
+          const was = state.drawerOpen ? "[data-drawer]" : state.menuOpen ? "[data-menu]" : "[data-complete]";
+          state.drawerOpen = state.menuOpen = state.dialogOpen = false;
+          render();
+          app.querySelector(was)?.focus();
+          return;
+        }
+        if (embedded) return;
+        const t = e.target;
+        if (t.closest && t.closest("input, textarea, select, [contenteditable]")) return;
+        if (e.key === "ArrowLeft") cycle(-1);
+        if (e.key === "ArrowRight") cycle(1);
+      });
+      let rt;
+      window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => (embedded || view === "desktop" ? drawCharts() : renderFrames()), 80); });
+
+      // ---------- Prototype bar (not part of the design) ----------
+      function renderBar() {
+        const v = VARIANTS.find((x) => x.key === variant);
+        const seg = (group, opts, cur) =>
+          `<div class="flex rounded-full bg-white/10 p-0.5">${opts.map(([k, label]) => `<button data-${group}="${k}" class="px-2.5 py-1 rounded-full text-xs whitespace-nowrap ${k === cur ? "bg-white text-slate-900" : "text-white/80 hover:text-white"}">${label}</button>`).join("")}</div>`;
+        bar.innerHTML = `
+          <div class="fixed bottom-4 inset-x-0 mx-auto w-fit z-[60] flex flex-wrap justify-center items-center gap-x-3 gap-y-1 max-w-[calc(100vw-1rem)] rounded-3xl bg-slate-900 text-white pl-2 pr-3 py-1.5 shadow-lg ring-1 ring-black/10 text-sm">
+            <span class="text-[10px] font-semibold uppercase tracking-wider text-amber-300 px-2">Prototype</span>
+            <button data-prev aria-label="Previous variant" class="h-7 w-7 inline-flex items-center justify-center rounded-full hover:bg-white/10">${icon("chevron-left")}</button>
+            <span class="min-w-52 text-center"><span class="font-semibold">${v.key}</span> · ${v.name}</span>
+            <button data-next aria-label="Next variant" class="h-7 w-7 inline-flex items-center justify-center rounded-full hover:bg-white/10">${icon("chevron-right")}</button>
+            ${seg("view", [["mobile", "Mobile 375"], ["desktop", "Desktop"], ["both", "Both"]], view)}
+            ${seg("page", PAGES.map((p) => [p.key, p.short]), state.page)}
+          </div>`;
+        bar.querySelector("[data-prev]").onclick = () => cycle(-1);
+        bar.querySelector("[data-next]").onclick = () => cycle(1);
+        bar.querySelectorAll("[data-view]").forEach((b) => (b.onclick = () => { view = b.dataset.view; setParam("view", view); render(); }));
+        bar.querySelectorAll("[data-page]").forEach((b) => (b.onclick = () => go(b.dataset.page)));
+      }
+      function cycle(dir) {
+        const i = VARIANTS.findIndex((x) => x.key === variant);
+        variant = VARIANTS[(i + dir + VARIANTS.length) % VARIANTS.length].key;
+        setParam("variant", variant);
+        clearTimeout(closeTimer);
+        state.drawerOpen = state.drawerClosing = false;
+        state.menuOpen = false;
+        render();
+      }
+      render();
+    </script>
+  </body>
+</html>

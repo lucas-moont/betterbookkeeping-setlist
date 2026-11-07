@@ -1,0 +1,883 @@
+<!doctype html>
+<!--
+  PROTOTYPE, throwaway. Not production code.
+  Question: what should the progression chart on Workout History look like
+  (movement picker, metric picker, 3M / 1Y / All, chart, empty states)?
+  Three layout variants, switchable with ?variant=A|B|C and the bar at the bottom.
+  ?view=desktop|mobile|both shows the page at desktop width, at 390px, or side by side.
+  ?data=sample|one|empty swaps the data. Everything is in memory (synthetic, resets on reload).
+  The chart is the same pattern as the approved Body Weight chart (Profile prototype, variant A).
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Prototype · Workout History · Progression</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+    <style type="text/tailwindcss">
+      @theme {
+        --color-primary: oklch(55% 0.2 35);
+      }
+      ::selection {
+        background: oklch(55% 0.2 35 / 0.18);
+      }
+      /* Anything clickable shows the pointer (Tailwind v4's preflight leaves buttons on the default cursor). */
+      button:not(:disabled),
+      [role="button"]:not([aria-disabled="true"]),
+      a[href],
+      select:not(:disabled),
+      summary,
+      label[for],
+      input[type="checkbox"]:not(:disabled),
+      input[type="radio"]:not(:disabled) {
+        cursor: pointer;
+      }
+      .tabular {
+        font-variant-numeric: tabular-nums;
+      }
+    </style>
+  </head>
+  <body class="bg-slate-50 text-slate-900 antialiased">
+    <div id="app"></div>
+    <div id="bar"></div>
+
+    <script>
+      // ---------- URL params ----------
+      const params = new URLSearchParams(location.search);
+      const VARIANTS = [
+        { key: "A", name: "Pickers above chart" },
+        { key: "B", name: "Metric tabs with values" },
+        { key: "C", name: "Movement list beside chart" },
+      ];
+      const DATASETS = ["sample", "one", "empty"];
+      let variant = VARIANTS.some((v) => v.key === params.get("variant")) ? params.get("variant") : "A";
+      let view = ["desktop", "mobile", "both"].includes(params.get("view")) ? params.get("view") : "desktop";
+      let dataset = DATASETS.includes(params.get("data")) ? params.get("data") : "sample";
+      const embedded = params.get("embed") === "1";
+
+      // ---------- Dates and numbers ----------
+      const pad = (n) => String(n).padStart(2, "0");
+      const toISO = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      const fromISO = (s) => {
+        const [y, m, d] = s.split("-").map(Number);
+        return new Date(y, m - 1, d);
+      };
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const daysAgo = (n) => {
+        const d = new Date(today);
+        d.setDate(d.getDate() - n);
+        return toISO(d);
+      };
+      const fmtShort = (s) => fromISO(s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      const fmtLong = (s) =>
+        fromISO(s).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+      const fmtLoad = (v) => (Math.round(v * 10) / 10).toLocaleString("en-US", { maximumFractionDigits: 1 });
+      const fmtInt = (v) => Math.round(v).toLocaleString("en-US");
+      const load = (s) => s.weight + (s.addedWeight ?? 0); // Load = weight + added weight
+
+      const METRICS = [
+        { key: "maxWeight", label: "Max Weight", unit: "lbs", fmt: fmtLoad },
+        { key: "totalReps", label: "Total Reps", unit: "reps", fmt: fmtInt },
+        { key: "totalVolume", label: "Total Volume", unit: "lbs", fmt: fmtInt },
+      ];
+      const PERIODS = [
+        { key: "3m", label: "3M", days: 91, words: "the last 3 months" },
+        { key: "1y", label: "1Y", days: 365, words: "the last year" },
+        { key: "all", label: "All", days: null, words: "all time" },
+      ];
+      const metricOf = (k) => METRICS.find((m) => m.key === k);
+      const periodOf = (k) => PERIODS.find((p) => p.key === k);
+
+      // ---------- Sample data (synthetic) ----------
+      const MOVEMENTS = [
+        { id: "bench", name: "Bench Press" },
+        { id: "squat", name: "Back Squat" },
+        { id: "deadlift", name: "Deadlift" },
+        { id: "pullup", name: "Pull-up", bodyWeight: true },
+        { id: "ohp", name: "Overhead Press" },
+        { id: "curl", name: "Dumbbell Curl" }, // in the library, never in a Completed Workout: not in the picker
+        // Accessories (sample size of a real library, so the search has something to do)
+        { id: "incline", name: "Incline Bench Press" },
+        { id: "row", name: "Barbell Row" },
+        { id: "pulldown", name: "Lat Pulldown" },
+        { id: "pushdown", name: "Tricep Pushdown" },
+        { id: "lateral", name: "Lateral Raise" },
+        { id: "facepull", name: "Face Pull" },
+        { id: "dips", name: "Dips", bodyWeight: true },
+        { id: "rdl", name: "Romanian Deadlift" },
+        { id: "legpress", name: "Leg Press" },
+        { id: "frontsquat", name: "Front Squat" },
+        { id: "hipthrust", name: "Hip Thrust" },
+        { id: "calf", name: "Calf Raise" },
+        { id: "pushup", name: "Push-up", bodyWeight: true },
+        { id: "hammer", name: "Hammer Curl" },
+      ];
+      // [movement, start load, gain over the period]; body-weight ones use the snapshot instead.
+      const ACCESSORIES = {
+        1: [["incline", 115, 30], ["row", 135, 40], ["pulldown", 120, 30], ["pushdown", 50, 20], ["lateral", 15, 10], ["facepull", 40, 15], ["dips", 0, 0]],
+        3: [["rdl", 165, 60], ["legpress", 270, 120], ["frontsquat", 135, 40], ["hipthrust", 185, 90], ["calf", 90, 40]],
+        5: [["pushup", 0, 0], ["hammer", 25, 10], ["row", 135, 40], ["facepull", 40, 15]],
+      };
+      const mvName = (id) => MOVEMENTS.find((m) => m.id === id).name;
+
+      function rng(seed) {
+        return () => {
+          seed = (seed + 0x6d2b79f5) | 0;
+          let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+          t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+      }
+
+      // About ten months of Mon / Wed / Fri workouts, a three-week break, Overhead Press dropped
+      // five months ago (so 3M has nothing for it), assisted pull-ups early (negative added weight),
+      // and one Training Day with two workouts.
+      function buildSample() {
+        const r = rng(7);
+        const r2 = rng(11); // separate stream, so the main lifts stay the same as before
+        const r5 = (v) => Math.round(v / 5) * 5;
+        const reps = (lo, hi) => lo + Math.floor(r() * (hi - lo + 1));
+        const barbell = (mv, top, n, lo, hi) =>
+          Array.from({ length: n }, (_, i) => ({ movementId: mv, weight: i === 0 || r() < 0.5 ? top : top - 10, addedWeight: null, reps: reps(lo, hi) }));
+        const workouts = [];
+        let id = 0;
+        for (let off = 300; off >= 1; off--) {
+          if (off <= 150 && off > 129) continue; // three weeks off
+          const d = new Date(today);
+          d.setDate(d.getDate() - off);
+          const dow = d.getDay();
+          if (![1, 3, 5].includes(dow) || r() < 0.12) continue;
+          const p = (300 - off) / 300;
+          const sets = [];
+          if (dow === 1) {
+            sets.push(...barbell("bench", r5(155 + 50 * p + (r() - 0.5) * 10), 4, 5, 8));
+            const bw = Math.round((178 - 6 * p + (r() - 0.5) * 1.5) * 10) / 10; // body weight snapshot
+            const added = r5(-20 + 45 * p);
+            for (let i = 0; i < 3; i++) sets.push({ movementId: "pullup", weight: bw, addedWeight: added, reps: reps(5, 10) });
+          }
+          if (dow === 3) {
+            sets.push(...barbell("squat", r5(185 + 70 * p + (r() - 0.5) * 10), 4, 4, 7));
+            if (off > 150) sets.push(...barbell("ohp", r5(95 + 15 * p), 3, 5, 8));
+          }
+          if (dow === 5) {
+            sets.push(...barbell("deadlift", r5(225 + 90 * p + (r() - 0.5) * 10), 3, 3, 5));
+            sets.push(...barbell("bench", r5(150 + 50 * p), 3, 6, 10));
+          }
+          // Two accessories per session, picked from that day's pool.
+          const pool = [...ACCESSORIES[dow]];
+          for (let k = 0; k < 2; k++) {
+            const [mv, base, gain] = pool.splice(Math.floor(r2() * pool.length), 1)[0];
+            const bw = MOVEMENTS.find((x) => x.id === mv).bodyWeight;
+            const w = bw ? Math.round((178 - 6 * p) * 10) / 10 : r5(base + gain * p);
+            for (let i = 0; i < 3; i++)
+              sets.push({ movementId: mv, weight: w, addedWeight: bw ? 0 : null, reps: 8 + Math.floor(r2() * 5) });
+          }
+          workouts.push({ id: `w${++id}`, date: toISO(d), time: "18:30", sets });
+        }
+        // Two workouts on one Training Day: a short morning bench session before the usual evening one.
+        const target = [...workouts].reverse().find((w) => fromISO(w.date).getDay() === 1 && w.date <= daysAgo(7));
+        const top = Math.max(...target.sets.filter((s) => s.movementId === "bench").map((s) => s.weight));
+        workouts.push({
+          id: `w${++id}`,
+          date: target.date,
+          time: "07:10",
+          sets: [
+            { movementId: "bench", weight: top + 5, addedWeight: null, reps: 3 },
+            { movementId: "bench", weight: top + 5, addedWeight: null, reps: 2 },
+          ],
+        });
+        return workouts;
+      }
+      const ONE = () => [
+        {
+          id: "w1",
+          date: daysAgo(3),
+          time: "18:30",
+          sets: [
+            { movementId: "bench", weight: 185, addedWeight: null, reps: 6 },
+            { movementId: "bench", weight: 185, addedWeight: null, reps: 5 },
+            { movementId: "squat", weight: 225, addedWeight: null, reps: 5 },
+          ],
+        },
+      ];
+      const initialWorkouts = () => (dataset === "empty" ? [] : dataset === "one" ? ONE() : buildSample());
+
+      // ---------- Aggregation: one point per Training Day (mirrors the SQL in ADR 0004) ----------
+      function trainingDays(movementId) {
+        const byDay = new Map();
+        for (const w of state.workouts)
+          for (const s of w.sets) {
+            if (s.movementId !== movementId) continue;
+            const d = byDay.get(w.date) || { date: w.date, maxWeight: -Infinity, totalReps: 0, totalVolume: 0, workouts: new Set() };
+            d.maxWeight = Math.max(d.maxWeight, load(s));
+            d.totalReps += s.reps;
+            d.totalVolume += load(s) * s.reps;
+            d.workouts.add(w.id);
+            byDay.set(w.date, d);
+          }
+        return [...byDay.values()]
+          .map((d) => ({ ...d, workouts: d.workouts.size, t: fromISO(d.date).getTime() }))
+          .sort((a, b) => a.t - b.t);
+      }
+      // The picker lists only movements with at least one set in a Completed Workout.
+      const pickerMovements = () =>
+        MOVEMENTS.filter((m) => state.workouts.some((w) => w.sets.some((s) => s.movementId === m.id)))
+          .map((m) => ({ ...m, days: trainingDays(m.id).length }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+      // Default: the movement with the most Training Days.
+      const defaultMovement = () => {
+        const list = pickerMovements();
+        return list.length ? [...list].sort((a, b) => b.days - a.days)[0].id : null;
+      };
+      // ---------- Gaps: more than 2 weeks without the selected movement (derived on the client) ----------
+      const GAP_DAYS = 15; // more than 14 days apart: skipping one weekly session is not a gap
+      const dayNum = (iso) => {
+        const [y, m, d] = iso.split("-").map(Number);
+        return Date.UTC(y, m - 1, d) / 864e5; // whole days, no DST drift
+      };
+      // Closed gaps sit between two Training Days; the open one runs from the last Training Day to today.
+      function findGaps(days, todayISO, min = GAP_DAYS) {
+        const gaps = [];
+        for (let i = 1; i < days.length; i++) {
+          const n = dayNum(days[i].date) - dayNum(days[i - 1].date);
+          if (n >= min) gaps.push({ from: days[i - 1].date, to: days[i].date, days: n, open: false });
+        }
+        const last = days[days.length - 1];
+        if (last) {
+          const n = dayNum(todayISO) - dayNum(last.date);
+          if (n >= min) gaps.push({ from: last.date, to: todayISO, days: n, open: true });
+        }
+        return gaps;
+      }
+      const fmtSpan = (n) => (n < 60 ? `${Math.floor(n / 7)} weeks` : `${Math.floor(n / 30)} months`);
+      const gapTitle = (g) => (g.open ? `No ${mvName(state.movementId)} since ${fmtShort(g.from)}` : `${fmtSpan(g.days)} without ${mvName(state.movementId)}`);
+      const gapDetail = (g) => (g.open ? `${fmtSpan(g.days)} so far` : `${fmtShort(g.from)} to ${fmtShort(g.to)}`);
+      // Gaps that overlap the visible window.
+      function visibleGaps(t0, t1) {
+        const all = findGaps(trainingDays(state.movementId), daysAgo(0));
+        return all.filter((g) => fromISO(g.to).getTime() > t0 && fromISO(g.from).getTime() < t1);
+      }
+      const chartDomain = (pts) => {
+        const DAY = 864e5;
+        const per = periodOf(state.period);
+        const t1 = today.getTime();
+        let t0 = per.days ? fromISO(daysAgo(per.days)).getTime() : pts[0].t;
+        if (t1 - t0 < 14 * DAY) t0 = t1 - 14 * DAY;
+        return [t0, t1];
+      };
+
+      function visiblePoints() {
+        if (!state.movementId) return [];
+        const all = trainingDays(state.movementId);
+        const p = periodOf(state.period);
+        if (!p.days) return all;
+        const from = daysAgo(p.days);
+        return all.filter((d) => d.date >= from);
+      }
+
+      // ---------- State (in memory) ----------
+      const state = { workouts: initialWorkouts(), movementId: null, metric: "maxWeight", period: "all", showState: false, mvQuery: "" };
+      state.movementId = defaultMovement();
+
+      // ---------- Shared pieces ----------
+      const icon = (name, cls = "w-4 h-4") => `<i data-lucide="${name}" class="${cls}"></i>`;
+      const WORDMARK = `<svg width="136" height="36" viewBox="0 0 136 36" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Setlist" class="h-6 w-auto">
+        <rect width="36" height="36" rx="9" fill="#cc2d00"/>
+        <rect x="8" y="9" width="20" height="4" rx="2" fill="#ffffff"/>
+        <rect x="8" y="16" width="14" height="4" rx="2" fill="#ffffff"/>
+        <rect x="8" y="23" width="8" height="4" rx="2" fill="#ffffff"/>
+        <text x="46" y="27" fill="#0f172a" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="26" font-weight="700" letter-spacing="-0.5">Setlist</text>
+      </svg>`;
+
+      function shell(content) {
+        const nav = [
+          ["dumbbell", "Current Workout", false],
+          ["history", "Workout History", true],
+          ["biceps-flexed", "Movements", false],
+        ]
+          .map(
+            ([i, label, active]) =>
+              `<a href="#" ${active ? 'aria-current="page"' : ""} class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${active ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}">${icon(i)}${label}</a>`,
+          )
+          .join("");
+        return `
+        <div class="min-h-screen md:flex bg-slate-50">
+          <nav class="hidden md:flex w-64 shrink-0 bg-white border-r border-slate-200 p-4 flex-col">
+            <div class="mb-8">${WORDMARK}</div>
+            <div class="flex flex-col gap-1 flex-1">${nav}</div>
+            <div class="border-t border-slate-200 pt-4 mt-4 space-y-2">
+              <a href="#" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
+                ${icon("user")}
+                <div class="truncate">
+                  <p class="text-xs text-slate-500">Logged in as</p>
+                  <p class="font-medium truncate">Alex Rivera</p>
+                </div>
+              </a>
+              <button class="inline-flex items-center gap-3 w-full h-8 px-3 rounded-lg text-sm font-medium text-slate-600 hover:bg-gray-100 hover:text-gray-900 transition-colors">${icon("log-out")}Log out</button>
+            </div>
+          </nav>
+          <div class="md:hidden flex items-center justify-between h-14 px-4 bg-white border-b border-slate-200">
+            ${WORDMARK}
+            <span class="text-xs text-slate-400 border border-dashed border-slate-300 rounded px-2 py-1">Mobile nav: decided in the responsive layout work</span>
+          </div>
+          <main class="flex-1 min-w-0 p-4 md:p-6 pb-24">${content}</main>
+        </div>`;
+      }
+
+      const card = (inner, cls = "") => `<div class="rounded-xl border border-slate-200 bg-white shadow-sm ${cls}">${inner}</div>`;
+      const cardTitle = (t) => `<h2 class="text-lg font-semibold leading-none tracking-tight text-slate-900">${t}</h2>`;
+      const selectCls =
+        "flex h-10 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:border-primary disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-gray-50";
+      const labelCls = "text-sm font-medium text-gray-700";
+
+      function movementSelect(id) {
+        const opts = pickerMovements()
+          .map((m) => `<option value="${m.id}" ${m.id === state.movementId ? "selected" : ""}>${m.name}</option>`)
+          .join("");
+        return `<select id="${id}" data-movement-select class="${selectCls}">${opts}</select>`;
+      }
+      function metricSelect(id) {
+        const opts = METRICS.map((m) => `<option value="${m.key}" ${m.key === state.metric ? "selected" : ""}>${m.label}</option>`).join("");
+        return `<select id="${id}" data-metric-select class="${selectCls}">${opts}</select>`;
+      }
+      // Segmented control built from plain buttons: the active one uses the nav's active look.
+      function segmented(attr, opts, cur, aria, cls = "") {
+        return `<div role="group" aria-label="${aria}" class="inline-flex rounded-lg border border-gray-300 bg-white p-0.5 ${cls}">${opts
+          .map(
+            ([k, label]) =>
+              `<button type="button" data-${attr}="${k}" aria-pressed="${k === cur}" class="flex-1 sm:flex-none h-8 px-3 rounded text-sm font-medium whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${k === cur ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:text-slate-900"}">${label}</button>`,
+          )
+          .join("")}</div>`;
+      }
+      const periodControl = (cls = "") => segmented("period", PERIODS.map((p) => [p.key, p.label]), state.period, "Period", cls);
+
+      function latestLine() {
+        const pts = visiblePoints();
+        if (!pts.length) return "";
+        const m = metricOf(state.metric);
+        const l = pts[pts.length - 1];
+        return `<p class="text-sm text-slate-500 tabular">Latest: <span class="font-medium text-slate-900">${m.fmt(l[m.key])} ${m.unit}</span> on ${fmtShort(l.date)}</p>`;
+      }
+
+      const hasWorkouts = () => state.workouts.length > 0;
+
+      // Chart area, or one of its two empty states.
+      function chartBlock(height) {
+        if (!hasWorkouts())
+          return `<div class="flex flex-col items-center justify-center text-center px-6 pb-6" style="height:${height}px">
+            <p class="text-sm text-slate-500">No completed workouts yet.</p>
+            <p class="text-sm text-slate-500">Complete a workout and your progress shows up here.</p>
+          </div>`;
+        if (!visiblePoints().length) {
+          const p = periodOf(state.period);
+          return `<div class="flex flex-col items-center justify-center gap-2 text-center px-6 pb-6" style="height:${height}px">
+            <p class="text-sm text-slate-500">No Training Days for ${mvName(state.movementId)} in ${p.words}.</p>
+            ${lastOneLine()}
+            <button data-period="all" class="text-sm font-medium text-primary underline-offset-4 hover:underline">Show all time</button>
+          </div>`;
+        }
+        return `<div class="px-2 md:px-4"><div data-chart data-height="${height}" class="relative w-full overflow-hidden" style="height:${height}px"></div></div>`;
+      }
+      function lastOneLine() {
+        const all = trainingDays(state.movementId);
+        return all.length ? `<p class="text-sm text-slate-500">Last one: ${fmtShort(all[all.length - 1].date)}.</p>` : "";
+      }
+      function chartCaption() {
+        if (!hasWorkouts() || !visiblePoints().length) return "";
+        const bw = MOVEMENTS.find((m) => m.id === state.movementId).bodyWeight;
+        const [t0, t1] = chartDomain(visiblePoints());
+        const shaded = visibleGaps(t0, t1).length > 0;
+        return `<p class="px-4 md:px-6 pt-2 pb-4 md:pb-6 text-xs text-slate-500 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span>One point per Training Day.${bw ? " Load includes your body weight on the day of each set." : ""}</span>
+          ${shaded ? `<span class="inline-flex items-center gap-1.5"><span class="inline-block w-3 h-3 rounded-sm bg-slate-200/60 border border-slate-300"></span>More than 2 weeks without ${mvName(state.movementId)}</span>` : ""}
+        </p>`;
+      }
+
+      // The existing Completed Workouts table, unchanged (context only; recent rows only in the prototype).
+      function completedWorkoutsCard() {
+        const recent = [...state.workouts].sort((a, b) => (a.date + a.time < b.date + b.time ? 1 : -1)).slice(0, 10);
+        const cols = MOVEMENTS.filter((m) => recent.some((w) => w.sets.some((s) => s.movementId === m.id))).sort((a, b) => a.name.localeCompare(b.name));
+        const head = cols.map((m) => `<th class="text-right py-3 px-4 font-medium text-slate-600 whitespace-nowrap">${m.name}</th>`).join("");
+        const rows = recent
+          .map((w) => {
+            const cells = cols
+              .map((m) => {
+                const ss = w.sets.filter((s) => s.movementId === m.id);
+                if (!ss.length) return `<td class="py-3 px-4 text-right text-slate-300">-</td>`;
+                const max = Math.max(...ss.map((s) => s.weight));
+                const avg = Math.round(ss.reduce((a, s) => a + s.reps, 0) / ss.length);
+                return `<td class="py-3 px-4 text-right text-slate-600 whitespace-nowrap">${fmtLoad(max)} lbs / ${avg} reps / ${ss.length} sets</td>`;
+              })
+              .join("");
+            return `<tr class="border-b border-slate-100 hover:bg-slate-50">
+              <td class="py-3 px-4"><input aria-label="Select workout" type="checkbox" class="rounded border-gray-300" /></td>
+              <td class="py-3 px-4 text-slate-500 whitespace-nowrap">${fmtShort(w.date)}</td>
+              <td class="py-3 px-4 text-right text-slate-600">${w.sets.length}</td>${cells}
+            </tr>`;
+          })
+          .join("");
+        const body = !hasWorkouts()
+          ? `<p class="text-sm text-slate-500">No completed workouts yet.</p>`
+          : `<div class="overflow-x-auto"><table class="w-full text-sm tabular">
+              <thead><tr class="border-b border-slate-200">
+                <th class="py-3 px-4"><input aria-label="Select all workouts" type="checkbox" class="rounded border-gray-300" /></th>
+                <th class="text-left py-3 px-4 font-medium text-slate-600">Date</th>
+                <th class="text-right py-3 px-4 font-medium text-slate-600">Sets</th>${head}
+              </tr></thead><tbody>${rows}</tbody></table></div>
+              ${state.workouts.length > 10 ? `<p class="mt-3 text-xs text-slate-400 border border-dashed border-slate-300 rounded px-2 py-1 w-fit">Prototype shows the 10 most recent of ${state.workouts.length} workouts</p>` : ""}`;
+        return card(`
+          <div class="flex flex-row items-center justify-between gap-4 p-4 md:p-6">
+            ${cardTitle("Completed Workouts")}
+            <button disabled class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium h-8 px-3 text-sm bg-red-600 text-white shadow-sm disabled:pointer-events-none disabled:opacity-50">${icon("trash-2")}Delete Selected (0)</button>
+          </div>
+          <div class="px-4 md:px-6 pb-4 md:pb-6">${body}</div>`);
+      }
+
+      const pageTitle = `<h1 class="text-2xl font-semibold text-slate-900">Workout History</h1>`;
+
+      // ---------- Variant A: a Progression card on top; movement and metric pickers above the chart ----------
+      function VariantA() {
+        const controls = hasWorkouts()
+          ? `<div class="px-4 md:px-6 pb-4 grid gap-3 sm:grid-cols-2 sm:max-w-xl">
+              <div class="space-y-2"><label for="a-mv" class="${labelCls}">Movement</label>${movementSelect("a-mv")}</div>
+              <div class="space-y-2"><label for="a-metric" class="${labelCls}">Metric</label>${metricSelect("a-metric")}</div>
+            </div>`
+          : "";
+        return `<div class="space-y-6">
+          ${pageTitle}
+          ${card(`
+            <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4 p-4 md:p-6">
+              <div class="space-y-2">${cardTitle("Progression")}${latestLine()}</div>
+              ${hasWorkouts() ? periodControl("w-full sm:w-auto") : ""}
+            </div>
+            ${controls}
+            ${chartBlock(300)}
+            ${chartCaption() || `<div class="h-4 md:h-6"></div>`}`)}
+          ${completedWorkoutsCard()}
+        </div>`;
+      }
+
+      // ---------- Variant B: movement picker in the card header; metrics as tabs that show the latest value ----------
+      function VariantB() {
+        const pts = visiblePoints();
+        const last = pts[pts.length - 1];
+        const tabs = hasWorkouts()
+          ? `<div role="tablist" aria-label="Metric" class="grid grid-cols-3 border-b border-slate-200 px-2 md:px-4">${METRICS.map((m) => {
+              const on = m.key === state.metric;
+              return `<button role="tab" aria-selected="${on}" data-metric="${m.key}" class="text-left px-2 md:px-3 pt-2 pb-3 -mb-px border-b-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded-t ${on ? "border-primary" : "border-transparent hover:border-slate-300"}">
+                <span class="block text-xs md:text-sm ${on ? "text-slate-900 font-medium" : "text-slate-500"}">${m.label}</span>
+                <span class="block mt-1 text-base md:text-lg font-semibold tabular ${on ? "text-slate-900" : "text-slate-600"}">${last ? `${m.fmt(last[m.key])} <span class="text-xs md:text-sm font-normal text-slate-500">${m.unit}</span>` : `<span class="text-slate-300">–</span>`}</span>
+              </button>`;
+            }).join("")}</div>
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 md:px-6 py-4">
+              <p class="text-sm text-slate-500">${last ? `Latest Training Day: <span class="text-slate-900 font-medium">${fmtLong(last.date)}</span>` : "&nbsp;"}</p>
+              ${periodControl("w-full sm:w-auto")}
+            </div>`
+          : "";
+        return `<div class="space-y-6">
+          ${pageTitle}
+          ${card(`
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 p-4 md:p-6">
+              ${cardTitle("Progression")}
+              ${hasWorkouts() ? `<div class="sm:w-60"><label for="b-mv" class="sr-only">Movement</label>${movementSelect("b-mv")}</div>` : ""}
+            </div>
+            ${tabs}
+            ${chartBlock(280)}
+            ${chartCaption() || `<div class="h-4 md:h-6"></div>`}`)}
+          ${completedWorkoutsCard()}
+        </div>`;
+      }
+
+      // ---------- Variant C: movement list on the left (select on mobile); metric and period as segmented controls ----------
+      function VariantC() {
+        const list = pickerMovements()
+          .map((m) => {
+            const on = m.id === state.movementId;
+            return `<li data-name="${m.name.toLowerCase()}"><button data-mv="${m.id}" aria-current="${on}" class="w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${on ? "bg-slate-100 text-slate-900 font-medium" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}">
+              <span class="truncate">${m.name}</span><span class="text-xs tabular ${on ? "text-slate-500" : "text-slate-400"}">${m.days}</span>
+            </button></li>`;
+          })
+          .join("");
+        const searchCls = `${selectCls} h-9 pl-9 [&::-webkit-search-cancel-button]:cursor-pointer`;
+        const searchIcon = `<span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">${icon("search")}</span>`;
+        const options = pickerMovements()
+          .map((m) => {
+            const on = m.id === state.movementId;
+            return `<li role="option" aria-selected="${on}" data-name="${m.name.toLowerCase()}"><button type="button" data-mv="${m.id}" tabindex="-1" class="w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-sm text-left ${on ? "bg-slate-100 text-slate-900 font-medium" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}">
+              <span class="truncate">${m.name}</span><span class="text-xs tabular text-slate-400">${m.days}</span></button></li>`;
+          })
+          .join("");
+        const body = hasWorkouts()
+          ? `<div class="lg:grid lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-2 px-4 md:px-6 pb-4 md:pb-6">
+              <div class="hidden lg:block border-r border-slate-200 pr-4" data-mv-panel>
+                <div class="relative mb-3">${searchIcon}<input type="search" data-mv-search aria-label="Search movements" placeholder="Search movements" value="${state.mvQuery}" autocomplete="off" class="${searchCls}" /></div>
+                <p class="px-3 pb-2 text-xs font-medium text-slate-500 flex justify-between"><span>Movement</span><span>Training Days</span></p>
+                <ul class="space-y-1 max-h-72 overflow-y-auto pr-1" data-mv-list>${list}</ul>
+                <p data-mv-empty class="hidden px-3 py-2 text-sm text-slate-500"></p>
+              </div>
+              <div class="min-w-0 lg:pl-2">
+                <div class="lg:hidden space-y-2 mb-4">
+                  <label for="c-mv-combo" class="${labelCls}">Movement</label>
+                  <div class="relative" data-combo>
+                    ${searchIcon}
+                    <input id="c-mv-combo" type="search" role="combobox" aria-expanded="false" aria-controls="c-mv-options" aria-autocomplete="list" autocomplete="off" placeholder="Search movements" value="${mvName(state.movementId)}" class="${searchCls} h-10" />
+                    <ul id="c-mv-options" role="listbox" aria-label="Movements" data-combo-list class="hidden absolute z-20 mt-1 w-full max-h-64 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-sm">${options}</ul>
+                    <p data-combo-empty class="hidden absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500 shadow-sm"></p>
+                  </div>
+                </div>
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-2">
+                  ${segmented("metric", METRICS.map((m) => [m.key, m.label]), state.metric, "Metric", "w-full sm:w-auto")}
+                  ${periodControl("w-full sm:w-auto")}
+                </div>
+                <div class="px-1 pb-1">${latestLine()}</div>
+                <div class="-mx-2 md:-mx-4">${chartBlock(300)}</div>
+                <div class="-mx-4 md:-mx-6">${chartCaption()}</div>
+              </div>
+            </div>`
+          : chartBlock(300);
+        return `<div class="space-y-6">
+          ${pageTitle}
+          ${card(`<div class="p-4 md:p-6">${cardTitle("Progression")}</div>${body}`)}
+          ${completedWorkoutsCard()}
+        </div>`;
+      }
+
+      // ---------- Chart: same SVG pattern as the Body Weight chart, real time axis ----------
+      function niceScale(min, max, count = 5) {
+        if (min === max) {
+          // A single value: open a band around it instead of a sliver.
+          const d = Math.max(Math.abs(min) * 0.1, 5);
+          min -= d; max += d;
+        } else {
+          const padv = (max - min) * 0.1;
+          min -= padv; max += padv;
+        }
+        const raw = (max - min) / count;
+        const mag = 10 ** Math.floor(Math.log10(raw));
+        const n = raw / mag;
+        const step = Math.max(1, (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * mag); // whole-number ticks
+        return { y0: Math.max(0, Math.floor(min / step) * step), y1: Math.ceil(max / step) * step, step };
+      }
+      const tickLabel = (v) => (v >= 10000 ? `${+(v / 1000).toFixed(1)}k` : v.toLocaleString("en-US"));
+
+      function drawCharts() {
+        document.querySelectorAll("[data-chart]").forEach((el) => {
+          const W = el.clientWidth;
+          const H = Number(el.dataset.height);
+          const pts = visiblePoints();
+          if (!pts.length || !W) return;
+          const met = metricOf(state.metric);
+          const val = (p) => p[met.key];
+          const m = { l: 52, r: 16, t: 12, b: 28 };
+          const iw = W - m.l - m.r;
+          const ih = H - m.t - m.b;
+          // X runs from the period start (or the first Training Day for All) to today, so time off shows as a gap.
+          const [t0, t1] = chartDomain(pts);
+          const { y0, y1, step } = niceScale(Math.min(...pts.map(val)), Math.max(...pts.map(val)));
+          const x = (t) => m.l + ((t - t0) / (t1 - t0)) * iw;
+          const y = (v) => m.t + (1 - (v - y0) / (y1 - y0)) * ih;
+
+          let grid = "";
+          for (let v = y0; v <= y1 + 1e-9; v += step) {
+            grid += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="#e2e8f0" stroke-width="1" />`;
+            grid += `<text x="${m.l - 8}" y="${y(v) + 4}" text-anchor="end" font-size="12" fill="#64748b">${tickLabel(v)}</text>`;
+          }
+          let xt = "";
+          const d = new Date(t0);
+          d.setDate(1);
+          d.setMonth(d.getMonth() + 1);
+          let lastX = -Infinity;
+          while (d.getTime() <= t1) {
+            const xx = x(d.getTime());
+            if (xx - lastX >= 56) {
+              xt += `<line x1="${xx}" x2="${xx}" y1="${H - m.b}" y2="${H - m.b + 4}" stroke="#cbd5e1" />`;
+              xt += `<text x="${xx}" y="${H - 8}" text-anchor="middle" font-size="12" fill="#64748b">${d.toLocaleDateString("en-US", { month: "short" })}</text>`;
+              lastX = xx;
+            }
+            d.setMonth(d.getMonth() + 1);
+          }
+          if (!xt) xt = `<text x="${x(pts[0].t)}" y="${H - 8}" text-anchor="middle" font-size="12" fill="#64748b">${fmtShort(pts[0].date)}</text>`;
+
+          const gaps = visibleGaps(t0, t1);
+          const bandX = (g) => [x(Math.max(fromISO(g.from).getTime(), t0)), x(Math.min(fromISO(g.to).getTime(), t1))];
+          const bands = gaps
+            .map((g) => {
+              const [a, b] = bandX(g);
+              // Full label if it fits, then the bare duration, then nothing (the tooltip still has it).
+              const label = [gapTitle(g), fmtSpan(g.days)].find((l) => b - a >= l.length * 6.2 + 12);
+              return `<rect x="${a}" y="${m.t}" width="${Math.max(b - a, 1)}" height="${ih}" fill="#e2e8f0" fill-opacity="0.6" />
+                ${label ? `<text x="${(a + b) / 2}" y="${m.t + 16}" text-anchor="middle" font-size="11" fill="#475569">${label}</text>` : ""}`;
+            })
+            .join("");
+          const gapStarts = new Set(gaps.filter((g) => !g.open).map((g) => g.from));
+          let solid = "", dashed = "";
+          pts.forEach((p, i) => {
+            const pt = `${x(p.t).toFixed(1)},${y(val(p)).toFixed(1)}`;
+            if (i === 0) { solid += `M${pt}`; return; }
+            const prev = pts[i - 1];
+            const pp = `${x(prev.t).toFixed(1)},${y(val(prev)).toFixed(1)}`;
+            if (gapStarts.has(prev.date)) { dashed += `M${pp} L${pt} `; solid += ` M${pt}`; }
+            else solid += ` L${pt}`;
+          });
+          // Dense series (a long period on a phone): drop the resting dots, keep the hover dot.
+          const r = iw / pts.length < 8 ? 0 : 3;
+          const dots = r === 0 ? "" : pts.map((p) => `<circle cx="${x(p.t)}" cy="${y(val(p))}" r="${r}" fill="#fff" stroke="oklch(55% 0.2 35)" stroke-width="2" />`).join("");
+          el.innerHTML = `<svg width="${W}" height="${H}" role="img" aria-label="${mvName(state.movementId)}, ${met.label}: ${pts.length} Training Days from ${fmtShort(pts[0].date)} to ${fmtShort(pts[pts.length - 1].date)}" class="block max-w-full tabular select-none">
+            ${bands}
+            ${grid}
+            <line x1="${m.l}" x2="${W - m.r}" y1="${H - m.b}" y2="${H - m.b}" stroke="#cbd5e1" />
+            ${xt}
+            <path d="${dashed}" fill="none" stroke="oklch(55% 0.2 35)" stroke-opacity="0.55" stroke-width="1.5" stroke-dasharray="4 4" />
+            <path d="${solid}" fill="none" stroke="oklch(55% 0.2 35)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+            ${dots}
+            <g data-hover style="display:none">
+              <line data-guide y1="${m.t}" y2="${H - m.b}" stroke="#94a3b8" stroke-dasharray="3 3" />
+              <circle data-hdot r="5" fill="oklch(55% 0.2 35)" stroke="#fff" stroke-width="2" />
+            </g>
+            <rect data-hit x="${m.l}" y="${m.t}" width="${iw}" height="${ih}" fill="transparent" />
+          </svg>
+          <div data-tip class="pointer-events-none absolute hidden rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm whitespace-nowrap tabular"></div>`;
+
+          const svg = el.querySelector("svg");
+          const hover = svg.querySelector("[data-hover]");
+          const tip = el.querySelector("[data-tip]");
+          const hit = svg.querySelector("[data-hit]");
+          const onMove = (ev) => {
+            const px = ev.clientX - svg.getBoundingClientRect().left;
+            let best = pts[0];
+            for (const p of pts) if (Math.abs(x(p.t) - px) < Math.abs(x(best.t) - px)) best = p;
+            const gap = gaps.find((g) => { const [a, b] = bandX(g); return px >= a && px <= b; });
+            if (gap && Math.abs(x(best.t) - px) > 12) {
+              const [a, b] = bandX(gap);
+              hover.style.display = "none";
+              tip.innerHTML = `<p class="font-medium text-slate-900">${gapTitle(gap)}</p><p class="text-slate-500">${gapDetail(gap)}</p>`;
+              tip.classList.remove("hidden");
+              const tw = tip.offsetWidth;
+              tip.style.left = `${Math.min(Math.max((a + b) / 2 - tw / 2, 0), W - tw)}px`;
+              tip.style.top = `${m.t + 26}px`;
+              return;
+            }
+            const bx = x(best.t), by = y(val(best));
+            hover.style.display = "";
+            hover.querySelector("[data-guide]").setAttribute("x1", bx);
+            hover.querySelector("[data-guide]").setAttribute("x2", bx);
+            hover.querySelector("[data-hdot]").setAttribute("cx", bx);
+            hover.querySelector("[data-hdot]").setAttribute("cy", by);
+            tip.innerHTML = `<p class="font-medium text-slate-900">${met.fmt(val(best))} ${met.unit}</p><p class="text-slate-500">${fmtLong(best.date)}</p>${best.workouts > 1 ? `<p class="text-slate-500">${best.workouts} workouts combined</p>` : ""}`;
+            tip.classList.remove("hidden");
+            const tw = tip.offsetWidth, th = tip.offsetHeight;
+            tip.style.left = `${Math.min(Math.max(bx - tw / 2, 0), W - tw)}px`;
+            tip.style.top = `${by - th - 12 >= 0 ? by - th - 12 : by + 12}px`;
+          };
+          hit.addEventListener("pointermove", onMove);
+          hit.addEventListener("pointerdown", onMove);
+          hit.addEventListener("pointerleave", () => {
+            hover.style.display = "none";
+            tip.classList.add("hidden");
+          });
+        });
+      }
+
+      // ---------- Render ----------
+      const app = document.getElementById("app");
+      const bar = document.getElementById("bar");
+
+      function setParam(k, v) {
+        const p = new URLSearchParams(location.search);
+        p.set(k, v);
+        history.replaceState(null, "", `${location.pathname}?${p}`);
+      }
+
+      function renderFrames() {
+        const src = (w) => `${location.pathname}?variant=${variant}&data=${dataset}&embed=1&w=${w}`;
+        const phone = `<div class="flex flex-col gap-2 shrink-0">
+            <p class="text-xs font-medium text-slate-500">Mobile · 390 px</p>
+            <iframe title="Mobile" src="${src(390)}" class="bg-white rounded-xl border border-slate-300 shadow-sm" style="width:390px;height:844px"></iframe>
+          </div>`;
+        if (view === "mobile") {
+          app.innerHTML = `<div class="min-h-screen flex justify-center p-6 pb-28 bg-slate-200">${phone}</div>`;
+          return;
+        }
+        // Desktop renders at a real 1280 px width, shrunk to fit beside the phone.
+        const sc = Math.min(1, (window.innerWidth - 48 - 24 - 392) / 1280);
+        app.innerHTML = `<div class="min-h-screen flex gap-6 items-start p-6 pb-28 bg-slate-200">
+          <div class="flex flex-col gap-2 shrink-0">
+            <p class="text-xs font-medium text-slate-500">Desktop · 1280 px${sc < 1 ? ` (shown at ${Math.round(sc * 100)}%)` : ""}</p>
+            <div style="width:${1280 * sc}px;height:${800 * sc}px" class="overflow-hidden rounded-xl border border-slate-300 shadow-sm bg-white">
+              <iframe title="Desktop" src="${src(1280)}" style="width:1280px;height:800px;transform:scale(${sc});transform-origin:top left"></iframe>
+            </div>
+          </div>
+          ${phone}</div>`;
+      }
+
+      function render() {
+        if (!embedded && view !== "desktop") {
+          renderFrames();
+        } else {
+          const V = { A: VariantA, B: VariantB, C: VariantC }[variant];
+          app.innerHTML = shell(V());
+          bindPage();
+          drawCharts();
+        }
+        if (!embedded) renderBar();
+        if (window.lucide) lucide.createIcons();
+      }
+
+      // Hides list items that don't contain the query; returns the visible ones.
+      function filterList(ul, emptyEl, q) {
+        const needle = q.trim().toLowerCase();
+        const items = [...ul.querySelectorAll("li[data-name]")];
+        const shown = items.filter((li) => {
+          const ok = !needle || li.dataset.name.includes(needle);
+          li.classList.toggle("hidden", !ok);
+          return ok;
+        });
+        if (emptyEl) {
+          emptyEl.textContent = `No movements match "${q.trim()}".`;
+          emptyEl.classList.toggle("hidden", shown.length > 0);
+        }
+        return shown;
+      }
+      const pick = (id, focusSel) => {
+        state.movementId = id;
+        render();
+        const el = focusSel && app.querySelector(focusSel);
+        if (el) {
+          el.focus();
+          if (el.setSelectionRange) el.setSelectionRange(el.value.length, el.value.length); // caret at the end
+        }
+      };
+
+      function bindSearch() {
+        // Desktop: the search filters the list beside the chart.
+        const panel = app.querySelector("[data-mv-panel]");
+        if (panel) {
+          const input = panel.querySelector("[data-mv-search]");
+          const ul = panel.querySelector("[data-mv-list]");
+          const empty = panel.querySelector("[data-mv-empty]");
+          filterList(ul, empty, state.mvQuery);
+          input.addEventListener("input", () => { state.mvQuery = input.value; filterList(ul, empty, input.value); });
+          input.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+              const first = filterList(ul, empty, input.value)[0];
+              if (first) pick(first.querySelector("[data-mv]").dataset.mv, "[data-mv-search]");
+            }
+            if (e.key === "Escape") { input.value = ""; state.mvQuery = ""; filterList(ul, empty, ""); }
+          });
+        }
+        // Mobile: a combobox. Shows the chosen movement; typing opens the matching options.
+        const combo = app.querySelector("[data-combo]");
+        if (combo) {
+          const input = combo.querySelector("input");
+          const ul = combo.querySelector("[data-combo-list]");
+          const empty = combo.querySelector("[data-combo-empty]");
+          const open = (q) => {
+            const shown = filterList(ul, empty, q);
+            ul.classList.toggle("hidden", shown.length === 0);
+            input.setAttribute("aria-expanded", String(shown.length > 0));
+          };
+          const close = () => {
+            ul.classList.add("hidden");
+            empty.classList.add("hidden");
+            input.setAttribute("aria-expanded", "false");
+            input.value = mvName(state.movementId);
+          };
+          input.addEventListener("focus", () => { input.select(); open(""); });
+          input.addEventListener("input", () => open(input.value));
+          input.addEventListener("blur", () => setTimeout(close, 120));
+          input.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              const first = filterList(ul, empty, input.value)[0];
+              if (first) { pick(first.querySelector("[data-mv]").dataset.mv); }
+            }
+            if (e.key === "Escape") { close(); input.blur(); }
+          });
+          // mousedown, not click: picks before the input's blur closes the list.
+          ul.querySelectorAll("[data-mv]").forEach((b) => b.addEventListener("mousedown", (e) => { e.preventDefault(); pick(b.dataset.mv); }));
+        }
+      }
+
+      function bindPage() {
+        bindSearch();
+        const keepFocus = (sel) => { const el = app.querySelector(sel); el && el.focus(); };
+        app.querySelectorAll("[data-movement-select]").forEach((s) =>
+          s.addEventListener("change", (e) => { state.movementId = e.target.value; render(); keepFocus(`#${e.target.id}`); }),
+        );
+        app.querySelectorAll("[data-metric-select]").forEach((s) =>
+          s.addEventListener("change", (e) => { state.metric = e.target.value; render(); keepFocus(`#${e.target.id}`); }),
+        );
+        app.querySelectorAll("[data-metric]").forEach((b) =>
+          b.addEventListener("click", () => { state.metric = b.dataset.metric; render(); keepFocus(`[data-metric="${state.metric}"]`); }),
+        );
+        app.querySelectorAll("[data-period]").forEach((b) =>
+          b.addEventListener("click", () => { state.period = b.dataset.period; render(); keepFocus(`[data-period="${state.period}"]`); }),
+        );
+        app.querySelectorAll("[data-mv-list] [data-mv]").forEach((b) =>
+          b.addEventListener("click", () => { state.movementId = b.dataset.mv; render(); keepFocus(`[data-mv-list] [data-mv="${state.movementId}"]`); }),
+        );
+      }
+
+      // ---------- Prototype bar (not part of the design) ----------
+      function renderBar() {
+        const v = VARIANTS.find((x) => x.key === variant);
+        const seg = (group, opts, cur) =>
+          `<div class="flex rounded-full bg-white/10 p-0.5">${opts
+            .map(
+              ([k, label]) =>
+                `<button data-${group}="${k}" class="px-2.5 py-1 rounded-full text-xs whitespace-nowrap ${k === cur ? "bg-white text-slate-900" : "text-white/80 hover:text-white"}">${label}</button>`,
+            )
+            .join("")}</div>`;
+        const pts = visiblePoints().map(({ t, ...p }) => ({ ...p, maxWeight: +p.maxWeight.toFixed(2), totalVolume: +p.totalVolume.toFixed(2) }));
+        const stateJson = JSON.stringify(
+          { variant, view, dataset, movementId: state.movementId, metric: state.metric, period: state.period, pickerMovements: pickerMovements().map((m) => m.name), trainingDays: pts.slice(-12).reverse() },
+          null,
+          2,
+        );
+        bar.innerHTML = `
+          ${
+            state.showState && view === "desktop"
+              ? `<pre class="fixed bottom-20 right-4 z-50 max-h-[50vh] w-80 overflow-auto rounded-xl bg-slate-900 p-3 text-[11px] leading-snug text-slate-100 shadow-lg">// trainingDays: newest 12 of ${pts.length}\n${stateJson}</pre>`
+              : ""
+          }
+          <div class="fixed bottom-4 inset-x-0 mx-auto w-fit z-50 flex flex-wrap justify-center items-center gap-x-3 gap-y-1 max-w-[calc(100vw-1rem)] rounded-3xl bg-slate-900 text-white pl-2 pr-3 py-1.5 shadow-lg ring-1 ring-black/10 text-sm">
+            <span class="text-[10px] font-semibold uppercase tracking-wider text-amber-300 px-2">Prototype</span>
+            <button data-prev aria-label="Previous variant" class="h-7 w-7 inline-flex items-center justify-center rounded-full hover:bg-white/10">${icon("chevron-left")}</button>
+            <span class="min-w-56 text-center"><span class="font-semibold">${v.key}</span> · ${v.name}</span>
+            <button data-next aria-label="Next variant" class="h-7 w-7 inline-flex items-center justify-center rounded-full hover:bg-white/10">${icon("chevron-right")}</button>
+            ${seg("view", [["desktop", "Desktop"], ["mobile", "Mobile"], ["both", "Both"]], view)}
+            ${seg("data", [["sample", "Sample"], ["one", "One workout"], ["empty", "Empty"]], dataset)}
+            ${view === "desktop" ? `<button data-state class="px-2.5 py-1 rounded-full text-xs ${state.showState ? "bg-white text-slate-900" : "text-white/80 hover:text-white bg-white/10"}">State</button>` : ""}
+          </div>`;
+        bar.querySelector("[data-prev]").onclick = () => cycle(-1);
+        bar.querySelector("[data-next]").onclick = () => cycle(1);
+        bar.querySelectorAll("[data-view]").forEach((b) => (b.onclick = () => { view = b.dataset.view; setParam("view", view); render(); }));
+        bar.querySelectorAll("[data-data]").forEach(
+          (b) => (b.onclick = () => { dataset = b.dataset.data; setParam("data", dataset); state.workouts = initialWorkouts(); state.movementId = defaultMovement(); render(); }),
+        );
+        const s = bar.querySelector("[data-state]");
+        if (s) s.onclick = () => { state.showState = !state.showState; render(); };
+      }
+      function cycle(dir) {
+        const i = VARIANTS.findIndex((x) => x.key === variant);
+        variant = VARIANTS[(i + dir + VARIANTS.length) % VARIANTS.length].key;
+        setParam("variant", variant);
+        render();
+      }
+      document.addEventListener("keydown", (e) => {
+        if (embedded) return;
+        const t = e.target;
+        if (t.closest && t.closest("input, textarea, select, [contenteditable], [role=tab], [role=group] button")) return;
+        if (e.key === "ArrowLeft") cycle(-1);
+        if (e.key === "ArrowRight") cycle(1);
+      });
+      let rt;
+      const ro = new ResizeObserver(() => { clearTimeout(rt); rt = setTimeout(drawCharts, 50); });
+      new MutationObserver(() => document.querySelectorAll("[data-chart]").forEach((el) => ro.observe(el))).observe(app, { childList: true, subtree: true });
+
+      render();
+    </script>
+  </body>
+</html>

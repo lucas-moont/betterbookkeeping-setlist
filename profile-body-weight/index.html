@@ -1,0 +1,572 @@
+<!doctype html>
+<!--
+  PROTOTYPE, throwaway. Not production code.
+  Question: what should the Profile page with the Body Weight section look like?
+  Three layout variants of /profile, switchable with ?variant=A|B|C and the bar at the bottom.
+  ?view=desktop|mobile|both shows the page at desktop width, at 390px, or side by side.
+  Data is in memory only (sample data, resets on reload). Each frame keeps its own state.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Prototype · Profile · Body Weight</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+    <style type="text/tailwindcss">
+      @theme {
+        --color-primary: oklch(55% 0.2 35);
+      }
+      ::selection {
+        background: oklch(55% 0.2 35 / 0.18);
+      }
+      input {
+        caret-color: var(--color-primary);
+      }
+      /* Anything clickable shows the pointer (Tailwind v4's preflight leaves buttons on the default cursor). */
+      button:not(:disabled),
+      [role="button"]:not([aria-disabled="true"]),
+      a[href],
+      select:not(:disabled),
+      summary,
+      label[for],
+      input[type="checkbox"]:not(:disabled),
+      input[type="radio"]:not(:disabled) {
+        cursor: pointer;
+      }
+      .tabular {
+        font-variant-numeric: tabular-nums;
+      }
+    </style>
+  </head>
+  <body class="bg-slate-50 text-slate-900 antialiased">
+    <div id="app"></div>
+    <div id="bar"></div>
+
+    <script>
+      // ---------- URL params ----------
+      const params = new URLSearchParams(location.search);
+      const VARIANTS = [
+        { key: "A", name: "Chart, then entries" },
+        { key: "B", name: "Form beside chart" },
+        { key: "C", name: "Record in header, table" },
+      ];
+      const DATASETS = ["sample", "one", "empty"];
+      let variant = VARIANTS.some((v) => v.key === params.get("variant")) ? params.get("variant") : "A";
+      let view = ["desktop", "mobile", "both"].includes(params.get("view")) ? params.get("view") : "desktop";
+      let dataset = DATASETS.includes(params.get("data")) ? params.get("data") : "sample";
+      const embedded = params.get("embed") === "1";
+
+      // ---------- Dates ----------
+      const pad = (n) => String(n).padStart(2, "0");
+      const toISO = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      const fromISO = (s) => {
+        const [y, m, d] = s.split("-").map(Number);
+        return new Date(y, m - 1, d);
+      };
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const TODAY = toISO(today);
+      const daysAgo = (n) => {
+        const d = new Date(today);
+        d.setDate(d.getDate() - n);
+        return toISO(d);
+      };
+      const fmtShort = (s) => fromISO(s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      const fmtLong = (s) =>
+        fromISO(s).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+      const fmtW = (w) => w.toFixed(1);
+
+      // ---------- Sample data (synthetic) ----------
+      // About five months, with a three-week gap (no entries) so the time axis shows it.
+      const SAMPLE = [
+        [150, 178.6], [146, 178.2], [141, 178.8], [137, 177.9], [132, 177.4], [128, 177.6],
+        [123, 176.9], [118, 176.5], [114, 176.8], [109, 176.1],
+        // gap: ~3 weeks without weighing in
+        [86, 175.2], [82, 175.6], [77, 174.9], [70, 174.4], [63, 174.7], [56, 173.9],
+        [49, 173.5], [42, 173.8], [35, 173.1], [28, 172.9], [21, 173.4], [14, 172.6], [7, 172.8], [2, 172.2],
+      ].map(([d, w]) => ({ date: daysAgo(d), weight: w }));
+
+      const initialEntries = () =>
+        dataset === "empty" ? [] : dataset === "one" ? [{ date: daysAgo(3), weight: 172.4 }] : SAMPLE.map((e) => ({ ...e }));
+
+      // ---------- State (in memory) ----------
+      const state = {
+        entries: initialEntries(),
+        form: { date: TODAY, weight: "" },
+        error: "",
+        flash: "",
+        showState: false,
+        showAll: false,
+      };
+      const LIMIT = 8;
+      const sorted = () => [...state.entries].sort((a, b) => (a.date < b.date ? 1 : -1)); // newest first
+      const latest = () => sorted()[0];
+      const existingFor = (date) => state.entries.find((e) => e.date === date);
+
+      function record(e) {
+        e.preventDefault();
+        const { date, weight } = state.form;
+        const w = Number(weight);
+        if (!date) return setError("Pick a date.");
+        if (date > TODAY) return setError("The date can't be in the future.");
+        if (!weight || !(w > 0)) return setError("Enter a weight above 0.");
+        if (w >= 10000) return setError("Enter a weight below 10,000 lbs.");
+        const rounded = Math.round(w * 100) / 100;
+        const prev = existingFor(date);
+        if (prev) {
+          prev.weight = rounded;
+          state.flash = `Replaced the entry for ${fmtShort(date)}.`;
+        } else {
+          state.entries.push({ date, weight: rounded });
+          state.flash = `Recorded ${fmtW(rounded)} lbs for ${fmtShort(date)}.`;
+        }
+        state.form = { date: TODAY, weight: "" };
+        state.error = "";
+        render();
+      }
+      function setError(msg) {
+        state.error = msg;
+        state.flash = "";
+        render();
+      }
+      function removeEntry(date) {
+        state.entries = state.entries.filter((e) => e.date !== date);
+        state.flash = `Deleted the entry for ${fmtShort(date)}.`;
+        render();
+      }
+
+      // ---------- Shared pieces ----------
+      const icon = (name, cls = "w-4 h-4") => `<i data-lucide="${name}" class="${cls}"></i>`;
+
+      const WORDMARK = `<svg width="136" height="36" viewBox="0 0 136 36" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Setlist" class="h-6 w-auto">
+        <rect width="36" height="36" rx="9" fill="#cc2d00"/>
+        <rect x="8" y="9" width="20" height="4" rx="2" fill="#ffffff"/>
+        <rect x="8" y="16" width="14" height="4" rx="2" fill="#ffffff"/>
+        <rect x="8" y="23" width="8" height="4" rx="2" fill="#ffffff"/>
+        <text x="46" y="27" fill="#0f172a" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="26" font-weight="700" letter-spacing="-0.5">Setlist</text>
+      </svg>`;
+
+      function shell(content) {
+        const nav = [
+          ["dumbbell", "Current Workout"],
+          ["history", "Workout History"],
+          ["biceps-flexed", "Movements"],
+        ]
+          .map(
+            ([i, label]) => `<a href="#" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">${icon(i)}${label}</a>`,
+          )
+          .join("");
+        return `
+        <div class="min-h-screen md:flex bg-slate-50">
+          <nav class="hidden md:flex w-64 shrink-0 bg-white border-r border-slate-200 p-4 flex-col">
+            <div class="mb-8">${WORDMARK}</div>
+            <div class="flex flex-col gap-1 flex-1">${nav}</div>
+            <div class="border-t border-slate-200 pt-4 mt-4 space-y-2">
+              <a href="#" aria-current="page" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm bg-slate-100 text-slate-900 transition-colors">
+                ${icon("user")}
+                <div class="truncate">
+                  <p class="text-xs text-slate-500">Logged in as</p>
+                  <p class="font-medium truncate">Alex Rivera</p>
+                </div>
+              </a>
+              <button class="inline-flex items-center gap-3 w-full h-8 px-3 rounded-lg text-sm font-medium text-slate-600 hover:bg-gray-100 hover:text-gray-900 transition-colors">${icon("log-out")}Log out</button>
+            </div>
+          </nav>
+          <div class="md:hidden flex items-center justify-between h-14 px-4 bg-white border-b border-slate-200">
+            ${WORDMARK}
+            <span class="text-xs text-slate-400 border border-dashed border-slate-300 rounded px-2 py-1">Mobile nav: decided in the responsive layout work</span>
+          </div>
+          <main class="flex-1 min-w-0 p-4 md:p-6">${content}</main>
+        </div>`;
+      }
+
+      const card = (inner, cls = "") => `<div class="rounded-xl border border-slate-200 bg-white shadow-sm ${cls}">${inner}</div>`;
+      const cardHeader = (title, right = "") =>
+        `<div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-4 p-4 md:p-6"><h2 class="text-lg font-semibold leading-none tracking-tight text-slate-900">${title}</h2>${right}</div>`;
+
+      const inputCls =
+        "flex h-10 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:border-primary";
+      const btnPrimary =
+        "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition-colors bg-primary text-white hover:bg-primary/90 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50";
+
+      function latestLine() {
+        const l = latest();
+        if (!l) return "";
+        return `<p class="text-sm text-slate-500 tabular">Latest: <span class="font-medium text-slate-900">${fmtW(l.weight)} lbs</span> on ${fmtShort(l.date)}</p>`;
+      }
+
+      // The inline hint under the form: replace notice, error, or confirmation.
+      function formHint() {
+        if (state.error) return `<p class="text-sm text-red-600" role="alert">${state.error}</p>`;
+        // The confirmation wins right after an action: the form resets to today, which may be the
+        // date just recorded, and that must not read as a warning. The replace notice comes back
+        // once the user types a new weight or picks a date.
+        if (state.flash) return `<p class="text-sm text-slate-500" role="status">${state.flash}</p>`;
+        const prev = existingFor(state.form.date);
+        if (prev)
+          return `<p class="text-sm text-amber-700">${fmtShort(state.form.date)} already has ${fmtW(prev.weight)} lbs. Recording again replaces it.</p>`;
+        return "";
+      }
+      const submitLabel = () => (!state.flash && existingFor(state.form.date) ? "Replace" : "Record");
+
+      function dateField(extra = "") {
+        return `<input type="date" aria-label="Date" name="date" value="${state.form.date}" max="${TODAY}" class="${inputCls} tabular ${extra}" />`;
+      }
+      function weightField(extra = "") {
+        return `<div class="relative ${extra}">
+          <input type="number" inputmode="decimal" step="0.1" min="0" aria-label="Weight in pounds" name="weight" placeholder="Weight" value="${state.form.weight}" class="${inputCls} tabular pr-10" />
+          <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">lbs</span>
+        </div>`;
+      }
+
+      function chartBlock(height = 260) {
+        if (state.entries.length === 0)
+          return `<div class="flex flex-col items-center justify-center text-center px-6 pb-6" style="height:${height}px">
+            <p class="text-sm text-slate-500">No body weight recorded yet.</p>
+            <p class="text-sm text-slate-500">Your first entry starts the chart.</p>
+          </div>`;
+        return `<div class="px-2 md:px-4 pb-4"><div data-chart data-height="${height}" class="relative w-full overflow-hidden" style="height:${height}px"></div></div>`;
+      }
+
+      function showAllButton(total) {
+        if (total <= LIMIT) return "";
+        return `<button data-showall class="text-sm font-medium text-primary underline-offset-4 hover:underline">${state.showAll ? "Show fewer" : `Show all ${total} entries`}</button>`;
+      }
+      function entryRows(capped = true) {
+        const all = sorted();
+        const list = capped && !state.showAll ? all.slice(0, LIMIT) : all;
+        if (list.length === 0) return `<p class="text-sm text-slate-500">No entries yet.</p>`;
+        return `<ul class="space-y-2">${list
+          .map(
+            (e) => `<li class="px-3 py-2 bg-slate-50 rounded-lg text-sm flex items-center justify-between">
+              <div class="tabular"><span class="font-medium">${fmtW(e.weight)} lbs</span><span class="text-slate-500 ml-2">${fmtLong(e.date)}</span></div>
+              <button aria-label="Delete entry for ${fmtShort(e.date)}" data-del="${e.date}" class="inline-flex items-center justify-center h-8 w-8 rounded-lg text-slate-400 hover:bg-gray-100 hover:text-gray-900 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50">${icon("x")}</button>
+            </li>`,
+          )
+          .join("")}</ul>${capped ? showAllButton(all.length) : ""}`;
+      }
+
+      // ---------- Variant A: chart card on top, then an entries card with an inline form (like Current Workout) ----------
+      function VariantA() {
+        return `<div class="space-y-6">
+          <h1 class="text-2xl font-semibold text-slate-900">Profile</h1>
+          ${card(cardHeader("Body Weight", latestLine()) + chartBlock(260))}
+          ${card(
+            cardHeader("Entries") +
+              `<div class="px-4 md:px-6 pb-4 md:pb-6 space-y-4">
+                <form data-form novalidate class="space-y-2">
+                  <div class="flex flex-col sm:flex-row gap-2 sm:items-center">
+                    ${dateField("sm:w-44")}
+                    ${weightField("sm:w-36")}
+                    <button type="submit" class="${btnPrimary} h-10 sm:h-8 px-3 text-sm">${icon("plus")}${submitLabel()}</button>
+                  </div>
+                  ${formHint()}
+                </form>
+                ${entryRows()}
+              </div>`,
+          )}
+        </div>`;
+      }
+
+      // ---------- Variant B: two columns. Form + list on the left, chart on the right ----------
+      function VariantB() {
+        return `<div class="space-y-6">
+          <h1 class="text-2xl font-semibold text-slate-900">Profile</h1>
+          <div class="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)] items-start">
+            <div class="space-y-6 lg:order-1 order-1">
+              ${card(
+                cardHeader("Record body weight") +
+                  `<form data-form novalidate class="px-4 md:px-6 pb-4 md:pb-6 space-y-4">
+                    <div class="space-y-2">
+                      <label class="text-sm font-medium text-gray-700" for="b-date">Date</label>
+                      ${dateField().replace('aria-label="Date"', 'id="b-date"')}
+                    </div>
+                    <div class="space-y-2">
+                      <label class="text-sm font-medium text-gray-700" for="b-weight">Weight</label>
+                      ${weightField().replace('aria-label="Weight in pounds"', 'id="b-weight"')}
+                    </div>
+                    ${formHint()}
+                    <button type="submit" class="${btnPrimary} h-10 px-4 w-full">${submitLabel()}</button>
+                  </form>`,
+              )}
+              <div class="hidden lg:block">${card(cardHeader("Entries", `<span class="text-sm text-slate-500 tabular">${state.entries.length}</span>`) + `<div class="px-6 pb-6 max-h-96 overflow-y-auto">${entryRows(false)}</div>`)}</div>
+            </div>
+            <div class="order-2 lg:order-2 lg:sticky lg:top-6">
+              ${card(cardHeader("Body Weight Chart", latestLine()) + chartBlock(340))}
+            </div>
+            <div class="order-3 lg:hidden">${card(cardHeader("Entries", `<span class="text-sm text-slate-500 tabular">${state.entries.length}</span>`) + `<div class="px-4 pb-4">${entryRows()}</div>`)}</div>
+          </div>
+        </div>`;
+      }
+
+      // ---------- Variant C: record form in the page header row, chart, then a table with change since previous ----------
+      function VariantC() {
+        const list = sorted();
+        const rows = list
+          .slice(0, state.showAll ? list.length : LIMIT)
+          .map((e, i) => {
+            const older = list[i + 1];
+            const diff = older ? e.weight - older.weight : null;
+            const diffTxt =
+              diff === null ? `<span class="text-slate-300">–</span>` : `${diff > 0 ? "+" : diff < 0 ? "−" : "±"}${fmtW(Math.abs(diff))}`;
+            return `<tr class="border-b border-slate-100 hover:bg-slate-50">
+              <td class="py-3 px-4 text-slate-600 whitespace-nowrap">${fmtLong(e.date)}</td>
+              <td class="py-3 px-4 text-right font-medium text-slate-900 whitespace-nowrap">${fmtW(e.weight)} lbs</td>
+              <td class="py-3 px-4 text-right text-slate-500 whitespace-nowrap">${diffTxt}</td>
+              <td class="py-1 px-2 w-10 text-right"><button aria-label="Delete entry for ${fmtShort(e.date)}" data-del="${e.date}" class="inline-flex items-center justify-center h-8 w-8 rounded-lg text-slate-400 hover:bg-gray-100 hover:text-gray-900 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50">${icon("trash-2")}</button></td>
+            </tr>`;
+          })
+          .join("");
+        return `<div class="space-y-6">
+          <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+            <div class="space-y-1">
+              <h1 class="text-2xl font-semibold text-slate-900">Profile</h1>
+              ${latestLine()}
+            </div>
+            <form data-form novalidate class="space-y-2 lg:max-w-md">
+              <div class="flex flex-col sm:flex-row gap-2">
+                ${dateField("sm:w-44")}
+                ${weightField("sm:w-36")}
+                <button type="submit" class="${btnPrimary} h-10 px-4">${icon("plus")}${submitLabel()} weight</button>
+              </div>
+              ${formHint()}
+            </form>
+          </div>
+          ${card(cardHeader("Body Weight Chart") + chartBlock(280))}
+          ${card(
+            cardHeader("Entries") +
+              (list.length === 0
+                ? `<div class="px-6 pb-6"><p class="text-sm text-slate-500">No entries yet.</p></div>`
+                : `<div class="overflow-x-auto pb-2"><table class="w-full text-sm tabular">
+                    <thead><tr class="border-b border-slate-200">
+                      <th class="text-left py-3 px-4 font-medium text-slate-600">Date</th>
+                      <th class="text-right py-3 px-4 font-medium text-slate-600">Weight</th>
+                      <th class="text-right py-3 px-4 font-medium text-slate-600">Change</th>
+                      <th class="w-10"><span class="sr-only">Actions</span></th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                  </table></div><div class="px-4 pb-4 pt-2">${showAllButton(list.length)}</div>`),
+          )}
+        </div>`;
+      }
+
+      // ---------- Chart: SVG with a real time axis ----------
+      function drawCharts() {
+        document.querySelectorAll("[data-chart]").forEach((el) => {
+          const W = el.clientWidth;
+          const H = Number(el.dataset.height);
+          const pts = [...state.entries].sort((a, b) => (a.date < b.date ? -1 : 1)).map((e) => ({ ...e, t: fromISO(e.date).getTime() }));
+          const m = { l: 44, r: 16, t: 12, b: 28 };
+          const iw = W - m.l - m.r;
+          const ih = H - m.t - m.b;
+          const DAY = 864e5;
+          // X runs from the first entry to today (same rule as the progression chart), so time off shows.
+          let t0 = pts[0].t, t1 = today.getTime();
+          if (t1 - t0 < 14 * DAY) t0 = t1 - 14 * DAY;
+          const ws = pts.map((p) => p.weight);
+          let y0 = Math.floor(Math.min(...ws) - 1), y1 = Math.ceil(Math.max(...ws) + 1);
+          const span = y1 - y0;
+          const step = span <= 6 ? 1 : span <= 12 ? 2 : span <= 30 ? 5 : 10;
+          y0 = Math.floor(y0 / step) * step;
+          y1 = Math.ceil(y1 / step) * step;
+          const x = (t) => m.l + ((t - t0) / (t1 - t0)) * iw;
+          const y = (w) => m.t + (1 - (w - y0) / (y1 - y0)) * ih;
+
+          let grid = "";
+          for (let v = y0; v <= y1 + 1e-9; v += step) {
+            grid += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="#e2e8f0" stroke-width="1" />`;
+            grid += `<text x="${m.l - 8}" y="${y(v) + 4}" text-anchor="end" font-size="12" fill="#64748b">${v}</text>`;
+          }
+          // Month ticks on the first of each month in range.
+          let xt = "";
+          const d = new Date(t0);
+          d.setDate(1);
+          d.setMonth(d.getMonth() + 1);
+          const minGap = 56;
+          let lastX = -Infinity;
+          while (d.getTime() <= t1) {
+            const xx = x(d.getTime());
+            if (xx - lastX >= minGap) {
+              const label = d.toLocaleDateString("en-US", { month: "short" });
+              xt += `<line x1="${xx}" x2="${xx}" y1="${H - m.b}" y2="${H - m.b + 4}" stroke="#cbd5e1" />`;
+              xt += `<text x="${xx}" y="${H - 8}" text-anchor="middle" font-size="12" fill="#64748b">${label}</text>`;
+              lastX = xx;
+            }
+            d.setMonth(d.getMonth() + 1);
+          }
+          if (!xt) {
+            xt += `<text x="${x(pts[0].t)}" y="${H - 8}" text-anchor="middle" font-size="12" fill="#64748b">${fmtShort(pts[0].date)}</text>`;
+          }
+          const line = pts.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.weight).toFixed(1)}`).join(" ");
+          const dots = pts.map((p) => `<circle cx="${x(p.t)}" cy="${y(p.weight)}" r="3" fill="#fff" stroke="oklch(55% 0.2 35)" stroke-width="2" />`).join("");
+          const first = pts[0], last = pts[pts.length - 1];
+          el.innerHTML = `<svg width="${W}" height="${H}" role="img" aria-label="Body weight chart: ${pts.length} entries from ${fmtShort(first.date)} to ${fmtShort(last.date)}" class="block max-w-full tabular select-none">
+            ${grid}
+            <line x1="${m.l}" x2="${W - m.r}" y1="${H - m.b}" y2="${H - m.b}" stroke="#cbd5e1" />
+            ${xt}
+            <path d="${line}" fill="none" stroke="oklch(55% 0.2 35)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+            ${dots}
+            <g data-hover style="display:none">
+              <line data-guide y1="${m.t}" y2="${H - m.b}" stroke="#94a3b8" stroke-dasharray="3 3" />
+              <circle data-hdot r="5" fill="oklch(55% 0.2 35)" stroke="#fff" stroke-width="2" />
+            </g>
+            <rect data-hit x="${m.l}" y="${m.t}" width="${iw}" height="${ih}" fill="transparent" />
+          </svg>
+          <div data-tip class="pointer-events-none absolute hidden rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm whitespace-nowrap tabular"></div>`;
+
+          const svg = el.querySelector("svg");
+          const hover = svg.querySelector("[data-hover]");
+          const tip = el.querySelector("[data-tip]");
+          svg.querySelector("[data-hit]").addEventListener("pointermove", (ev) => {
+            const r = svg.getBoundingClientRect();
+            const px = ev.clientX - r.left;
+            let best = pts[0];
+            for (const p of pts) if (Math.abs(x(p.t) - px) < Math.abs(x(best.t) - px)) best = p;
+            const bx = x(best.t), by = y(best.weight);
+            hover.style.display = "";
+            hover.querySelector("[data-guide]").setAttribute("x1", bx);
+            hover.querySelector("[data-guide]").setAttribute("x2", bx);
+            hover.querySelector("[data-hdot]").setAttribute("cx", bx);
+            hover.querySelector("[data-hdot]").setAttribute("cy", by);
+            tip.innerHTML = `<p class="font-medium text-slate-900">${fmtW(best.weight)} lbs</p><p class="text-slate-500">${fmtLong(best.date)}</p>`;
+            tip.classList.remove("hidden");
+            const tw = tip.offsetWidth;
+            tip.style.left = `${Math.min(Math.max(bx - tw / 2, 0), W - tw)}px`;
+            tip.style.top = `${Math.max(by - 64, 0)}px`;
+          });
+          svg.querySelector("[data-hit]").addEventListener("pointerleave", () => {
+            hover.style.display = "none";
+            tip.classList.add("hidden");
+          });
+        });
+      }
+
+      // ---------- Render ----------
+      const app = document.getElementById("app");
+      const bar = document.getElementById("bar");
+
+      function setParam(k, v) {
+        const p = new URLSearchParams(location.search);
+        p.set(k, v);
+        history.replaceState(null, "", `${location.pathname}?${p}`);
+      }
+
+      function renderFrames() {
+        const src = (w) => `${location.pathname}?variant=${variant}&data=${dataset}&embed=1&w=${w}`;
+        const frame = (w, label, cls = "") => `<div class="flex flex-col gap-2 ${cls}">
+            <p class="text-xs font-medium text-slate-500">${label}</p>
+            <iframe title="${label}" src="${src(w)}" class="bg-white rounded-xl border border-slate-300 shadow-sm" style="width:${w === "fill" ? "100%" : w + "px"};height:844px"></iframe>
+          </div>`;
+        app.innerHTML =
+          view === "mobile"
+            ? `<div class="min-h-screen flex justify-center p-6 pb-28 bg-slate-200">${frame(390, "Mobile · 390 px")}</div>`
+            : (() => {
+                // Desktop renders at a real 1280 px width, shrunk to fit beside the phone.
+                const sc = Math.min(1, (window.innerWidth - 48 - 24 - 392) / 1280);
+                return `<div class="min-h-screen flex gap-6 items-start p-6 pb-28 bg-slate-200">
+                  <div class="flex flex-col gap-2 shrink-0">
+                    <p class="text-xs font-medium text-slate-500">Desktop · 1280 px${sc < 1 ? ` (shown at ${Math.round(sc * 100)}%)` : ""}</p>
+                    <div style="width:${1280 * sc}px;height:${800 * sc}px" class="overflow-hidden rounded-xl border border-slate-300 shadow-sm bg-white">
+                      <iframe title="Desktop" src="${src(1280)}" style="width:1280px;height:800px;transform:scale(${sc});transform-origin:top left"></iframe>
+                    </div>
+                  </div>
+                  ${frame(390, "Mobile · 390 px", "shrink-0")}</div>`;
+              })();
+      }
+
+      function render() {
+        if (!embedded && view !== "desktop") {
+          renderFrames();
+        } else {
+          const V = { A: VariantA, B: VariantB, C: VariantC }[variant];
+          app.innerHTML = shell(V());
+          bindPage();
+          drawCharts();
+        }
+        if (!embedded) renderBar();
+        if (window.lucide) lucide.createIcons();
+      }
+
+      function bindPage() {
+        app.querySelectorAll("[data-form]").forEach((f) => {
+          f.addEventListener("submit", record);
+          f.querySelector('[name="date"]').addEventListener("change", (e) => {
+            state.form.date = e.target.value;
+            state.error = "";
+            state.flash = "";
+            render();
+            const el = app.querySelector('[name="date"]');
+            el && el.focus();
+          });
+          f.querySelector('[name="weight"]').addEventListener("input", (e) => {
+            state.form.weight = e.target.value;
+            if (state.flash || state.error) {
+              // First keystroke after an action: swap the confirmation for the live hint.
+              state.flash = "";
+              state.error = "";
+              render();
+              const el = app.querySelector('[name="weight"]');
+              if (el) { el.focus(); const v = el.value; el.value = ""; el.value = v; }
+            }
+          });
+        });
+        app.querySelectorAll("[data-showall]").forEach((b) => b.addEventListener("click", () => { state.showAll = !state.showAll; render(); }));
+        app.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", () => removeEntry(b.dataset.del)));
+      }
+
+      // ---------- Prototype bar (not part of the design) ----------
+      function renderBar() {
+        const v = VARIANTS.find((x) => x.key === variant);
+        const seg = (group, opts, cur) =>
+          `<div class="flex rounded-full bg-white/10 p-0.5">${opts
+            .map(
+              ([k, label]) =>
+                `<button data-${group}="${k}" class="px-2.5 py-1 rounded-full text-xs whitespace-nowrap ${k === cur ? "bg-white text-slate-900" : "text-white/80 hover:text-white"}">${label}</button>`,
+            )
+            .join("")}</div>`;
+        const stateJson = JSON.stringify({ variant, view, dataset, form: state.form, error: state.error, entries: sorted() }, null, 2);
+        bar.innerHTML = `
+          ${
+            state.showState && view === "desktop"
+              ? `<pre class="fixed bottom-20 right-4 z-50 max-h-[50vh] w-80 overflow-auto rounded-xl bg-slate-900 p-3 text-[11px] leading-snug text-slate-100 shadow-lg">${stateJson}</pre>`
+              : ""
+          }
+          <div class="fixed bottom-4 inset-x-0 mx-auto w-fit z-50 flex flex-wrap justify-center items-center gap-x-3 gap-y-1 max-w-[calc(100vw-1rem)] rounded-3xl bg-slate-900 text-white pl-2 pr-3 py-1.5 shadow-lg ring-1 ring-black/10 text-sm">
+            <span class="text-[10px] font-semibold uppercase tracking-wider text-amber-300 px-2">Prototype</span>
+            <button data-prev aria-label="Previous variant" class="h-7 w-7 inline-flex items-center justify-center rounded-full hover:bg-white/10">${icon("chevron-left")}</button>
+            <span class="min-w-48 text-center"><span class="font-semibold">${v.key}</span> · ${v.name}</span>
+            <button data-next aria-label="Next variant" class="h-7 w-7 inline-flex items-center justify-center rounded-full hover:bg-white/10">${icon("chevron-right")}</button>
+            ${seg("view", [["desktop", "Desktop"], ["mobile", "Mobile"], ["both", "Both"]], view)}
+            ${seg("data", [["sample", "Sample"], ["one", "One entry"], ["empty", "Empty"]], dataset)}
+            ${view === "desktop" ? `<button data-state class="px-2.5 py-1 rounded-full text-xs ${state.showState ? "bg-white text-slate-900" : "text-white/80 hover:text-white bg-white/10"}">State</button>` : ""}
+          </div>`;
+        bar.querySelector("[data-prev]").onclick = () => cycle(-1);
+        bar.querySelector("[data-next]").onclick = () => cycle(1);
+        bar.querySelectorAll("[data-view]").forEach((b) => (b.onclick = () => { view = b.dataset.view; setParam("view", view); render(); }));
+        bar.querySelectorAll("[data-data]").forEach((b) => (b.onclick = () => { dataset = b.dataset.data; setParam("data", dataset); state.entries = initialEntries(); state.flash = ""; state.error = ""; render(); }));
+        const s = bar.querySelector("[data-state]");
+        if (s) s.onclick = () => { state.showState = !state.showState; render(); };
+      }
+      function cycle(dir) {
+        const i = VARIANTS.findIndex((x) => x.key === variant);
+        variant = VARIANTS[(i + dir + VARIANTS.length) % VARIANTS.length].key;
+        setParam("variant", variant);
+        state.error = "";
+        render();
+      }
+      document.addEventListener("keydown", (e) => {
+        if (embedded) return;
+        const t = e.target;
+        if (t.closest && t.closest("input, textarea, select, [contenteditable]")) return;
+        if (e.key === "ArrowLeft") cycle(-1);
+        if (e.key === "ArrowRight") cycle(1);
+      });
+      let rt;
+      const ro = new ResizeObserver(() => { clearTimeout(rt); rt = setTimeout(drawCharts, 50); });
+      new MutationObserver(() => document.querySelectorAll("[data-chart]").forEach((el) => ro.observe(el))).observe(document.getElementById("app"), { childList: true, subtree: true });
+
+      render();
+    </script>
+  </body>
+</html>

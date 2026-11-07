@@ -1,0 +1,577 @@
+<!doctype html>
+<!--
+  PROTOTYPE, throwaway. Not production code.
+  Question: how should the Current Workout set form behave for Body-weight Movements
+  (weight locked to the Latest Body Weight, Added Weight with a required description,
+  the "no body weight yet" case) and how should a set row show its Load?
+  Three variants, switchable with ?variant=A|B|C and the bar at the bottom.
+  ?view=desktop|mobile|both, ?data=sample|nobw|empty. Everything is in memory (resets on reload).
+  "Weigh in" in the bar records a new body weight, to show that logged sets keep their snapshot.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Prototype · Current Workout · Body-weight sets</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+    <style type="text/tailwindcss">
+      @theme {
+        --color-primary: oklch(55% 0.2 35);
+      }
+      ::selection {
+        background: oklch(55% 0.2 35 / 0.18);
+      }
+      input {
+        caret-color: var(--color-primary);
+      }
+      /* Anything clickable shows the pointer (Tailwind v4's preflight leaves buttons on the default cursor). */
+      button:not(:disabled),
+      [role="button"]:not([aria-disabled="true"]),
+      a[href],
+      select:not(:disabled),
+      summary,
+      label[for],
+      input[type="checkbox"]:not(:disabled),
+      input[type="radio"]:not(:disabled) {
+        cursor: pointer;
+      }
+      .tabular {
+        font-variant-numeric: tabular-nums;
+      }
+    </style>
+  </head>
+  <body class="bg-slate-50 text-slate-900 antialiased">
+    <div id="app"></div>
+    <div id="bar"></div>
+
+    <script>
+      // ---------- URL params ----------
+      const params = new URLSearchParams(location.search);
+      const VARIANTS = [
+        { key: "A", name: "Added weight on its own row" },
+        { key: "B", name: "Labeled form, live Load" },
+        { key: "C", name: "One-tap presets" },
+      ];
+      const DATASETS = [["sample", "Sample"], ["nobw", "No body weight"], ["empty", "No sets yet"]];
+      let variant = VARIANTS.some((v) => v.key === params.get("variant")) ? params.get("variant") : "A";
+      let view = ["desktop", "mobile", "both"].includes(params.get("view")) ? params.get("view") : "desktop";
+      let dataset = DATASETS.some(([k]) => k === params.get("data")) ? params.get("data") : "sample";
+      const embedded = params.get("embed") === "1";
+
+      // ---------- Dates and numbers ----------
+      const pad = (n) => String(n).padStart(2, "0");
+      const toISO = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      const fromISO = (s) => {
+        const [y, m, d] = s.split("-").map(Number);
+        return new Date(y, m - 1, d);
+      };
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const TODAY = toISO(today);
+      const daysAgo = (n) => {
+        const d = new Date(today);
+        d.setDate(d.getDate() - n);
+        return toISO(d);
+      };
+      const fmtShort = (s) => fromISO(s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      const fmtW = (v) => (Math.round(v * 100) / 100).toLocaleString("en-US", { maximumFractionDigits: 2 });
+      const r2 = (n) => Math.round(n * 100) / 100;
+      const load = (s) => r2(s.weight + (s.addedWeight ?? 0)); // the only Load formula (src/lib/weight.ts)
+      const MAX_WEIGHT = 9999.99;
+
+      // ---------- Sample data (synthetic) ----------
+      const MOVEMENTS = [
+        { id: "bench", name: "Bench Press" },
+        { id: "squat", name: "Back Squat" },
+        { id: "deadlift", name: "Deadlift" },
+        { id: "pullup", name: "Pull-up", bodyWeight: true },
+        { id: "dips", name: "Dips", bodyWeight: true },
+        { id: "pushup", name: "Push-up", bodyWeight: true },
+      ];
+      const mv = (id) => MOVEMENTS.find((m) => m.id === id);
+
+      // Added Weight presets (variant C). The sign comes with the preset.
+      const PRESETS = [
+        { key: "vest", label: "Weighted vest", sign: 1 },
+        { key: "belt", label: "Dip belt", sign: 1 },
+        { key: "band", label: "Resistance band", sign: -1 },
+        { key: "machine", label: "Assisted machine", sign: -1 },
+      ];
+
+      function initialData() {
+        const bodyWeight = dataset === "nobw" ? [] : [{ date: daysAgo(2), weight: 172.4 }, { date: daysAgo(9), weight: 173.1 }];
+        let id = 0;
+        const sets =
+          dataset === "sample"
+            ? [
+                { id: ++id, movementId: "bench", weight: 185, addedWeight: null, note: null, reps: 6 },
+                { id: ++id, movementId: "pullup", weight: 172.4, addedWeight: 25, note: "weighted vest", reps: 6 },
+                { id: ++id, movementId: "pullup", weight: 172.4, addedWeight: null, note: null, reps: 9 },
+                { id: ++id, movementId: "dips", weight: 172.4, addedWeight: -40, note: "resistance band", reps: 10 },
+              ]
+            : [];
+        return { bodyWeight, sets, nextId: id + 1 };
+      }
+
+      // ---------- State (in memory) ----------
+      const blankAdded = () => ({ open: false, sign: 1, amount: "", note: "", preset: "none" });
+      const state = {
+        ...initialData(),
+        form: { movementId: "", weight: "", reps: "" },
+        added: blankAdded(),
+        errors: {},
+        flash: "",
+        showState: false,
+      };
+      const latestBW = () => [...state.bodyWeight].sort((a, b) => (a.date < b.date ? 1 : -1))[0] || null;
+      const selected = () => (state.form.movementId ? mv(state.form.movementId) : null);
+      const isBW = () => !!selected()?.bodyWeight;
+      const locked = () => isBW() && !!latestBW();
+
+      // Added Weight as a signed number, or null when there is none.
+      function addedValue() {
+        const a = state.added;
+        if (variant === "C" && a.preset === "none") return null;
+        if (variant === "A" && !a.open) return null;
+        if (a.amount === "" || Number(a.amount) === 0) return null;
+        return a.sign * Math.abs(Number(a.amount));
+      }
+      const weightValue = () => (locked() ? latestBW().weight : state.form.weight === "" ? null : Number(state.form.weight));
+
+      // ---------- Add a set (mirrors the server rules in the issue) ----------
+      const twoDecimals = (n) => r2(n) === n;
+      function addSet(e) {
+        e.preventDefault();
+        const errors = {};
+        const m = selected();
+        const repsN = Number(state.form.reps);
+        if (!Number.isInteger(repsN) || repsN < 1 || repsN > 999) errors.reps = "Reps must be a whole number from 1 to 999.";
+        const w = weightValue();
+        if (w === null) errors.weight = m.bodyWeight ? "Enter your body weight." : "Enter a weight.";
+        else if (!(w >= 0) || w > MAX_WEIGHT) errors.weight = `Enter a weight from 0 to ${fmtW(MAX_WEIGHT)} lbs.`;
+        else if (!twoDecimals(w)) errors.weight = "Use at most two decimals.";
+        let added = null, note = null;
+        if (m.bodyWeight) {
+          const a = state.added;
+          const wantsAdded = (variant === "A" && a.open) || (variant === "B" && ((a.amount !== "" && Number(a.amount) !== 0) || a.note.trim())) || (variant === "C" && a.preset !== "none");
+          if (wantsAdded) {
+            const amt = Number(a.amount);
+            if (a.amount === "" || !(amt > 0)) errors.added = variant === "A" ? "Enter the added weight, or remove it." : "Enter the added weight.";
+            else if (!twoDecimals(amt)) errors.added = "Use at most two decimals.";
+            else {
+              added = a.sign * amt;
+              // Presets store their label in lower case; text the user typed keeps its case.
+              note = variant === "C" && a.preset !== "other" ? PRESETS.find((p) => p.key === a.preset).label.toLowerCase() : a.note.trim();
+              if (!note) errors.note = 'Describe the added weight, for example "weighted vest".';
+              if (w !== null && added < 0 && -added > w) errors.added = `Assistance can't be more than your body weight (${fmtW(w)} lbs).`;
+            }
+          }
+        }
+        state.errors = errors;
+        if (Object.keys(errors).length) { state.flash = ""; render(); return; }
+        const createdEntry = m.bodyWeight && !latestBW();
+        if (createdEntry) state.bodyWeight.push({ date: TODAY, weight: w }); // same transaction as the set
+        state.sets.push({ id: state.nextId++, movementId: m.id, weight: w, addedWeight: added, note, reps: repsN });
+        state.flash = createdEntry ? `Set added. ${fmtW(w)} lbs is also saved as today's body weight.` : "";
+        state.form.reps = ""; // like today: reps clear, the rest stays for the next set
+        render();
+        const el = app.querySelector('[name="reps"]');
+        el && el.focus();
+      }
+      const removeSet = (id) => { state.sets = state.sets.filter((s) => s.id !== id); render(); };
+
+      // ---------- Shared pieces ----------
+      const icon = (name, cls = "w-4 h-4") => `<i data-lucide="${name}" class="${cls}"></i>`;
+      const WORDMARK = `<svg width="136" height="36" viewBox="0 0 136 36" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Setlist" class="h-6 w-auto">
+        <rect width="36" height="36" rx="9" fill="#cc2d00"/>
+        <rect x="8" y="9" width="20" height="4" rx="2" fill="#ffffff"/>
+        <rect x="8" y="16" width="14" height="4" rx="2" fill="#ffffff"/>
+        <rect x="8" y="23" width="8" height="4" rx="2" fill="#ffffff"/>
+        <text x="46" y="27" fill="#0f172a" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="26" font-weight="700" letter-spacing="-0.5">Setlist</text>
+      </svg>`;
+      function shell(content) {
+        const nav = [["dumbbell", "Current Workout", true], ["history", "Workout History", false], ["biceps-flexed", "Movements", false]]
+          .map(
+            ([i, label, active]) =>
+              `<a href="#" ${active ? 'aria-current="page"' : ""} class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${active ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}">${icon(i)}${label}</a>`,
+          )
+          .join("");
+        return `
+        <div class="min-h-screen md:flex bg-slate-50">
+          <nav class="hidden md:flex w-64 shrink-0 bg-white border-r border-slate-200 p-4 flex-col">
+            <div class="mb-8">${WORDMARK}</div>
+            <div class="flex flex-col gap-1 flex-1">${nav}</div>
+            <div class="border-t border-slate-200 pt-4 mt-4 space-y-2">
+              <a href="#" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
+                ${icon("user")}<div class="truncate"><p class="text-xs text-slate-500">Logged in as</p><p class="font-medium truncate">Alex Rivera</p></div>
+              </a>
+              <button class="inline-flex items-center gap-3 w-full h-8 px-3 rounded-lg text-sm font-medium text-slate-600 hover:bg-gray-100 hover:text-gray-900 transition-colors">${icon("log-out")}Log out</button>
+            </div>
+          </nav>
+          <div class="md:hidden flex items-center justify-between h-14 px-4 bg-white border-b border-slate-200">
+            ${WORDMARK}
+            <span class="text-xs text-slate-400 border border-dashed border-slate-300 rounded px-2 py-1">Mobile nav: decided in the responsive layout work</span>
+          </div>
+          <main class="flex-1 min-w-0 p-4 md:p-6 pb-24">${content}</main>
+        </div>`;
+      }
+      const inputCls =
+        "flex h-10 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:border-primary";
+      const errCls = (k) => (state.errors[k] ? "border-red-500 focus-visible:ring-red-500/40 focus-visible:border-red-500" : "");
+      const labelCls = "text-sm font-medium text-gray-700";
+      const btnPrimary =
+        "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition-colors bg-primary text-white hover:bg-primary/90 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50";
+      const btnGhost =
+        "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg font-medium transition-colors text-gray-700 hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50";
+
+      function movementSelect(extra = "") {
+        const opts = MOVEMENTS.map((m) => `<option value="${m.id}" ${m.id === state.form.movementId ? "selected" : ""}>${m.name}</option>`).join("");
+        return `<select name="movement" aria-label="Movement" class="${inputCls} ${extra}"><option value="">Select movement</option>${opts}</select>`;
+      }
+      // The Weight field: normal, locked to the Latest Body Weight, or asking for a first body weight.
+      function weightField(extra = "", label = false) {
+        if (locked()) {
+          const bw = latestBW();
+          return `<div class="relative ${extra}">
+            <input name="weight" ${label ? 'id="f-weight"' : 'aria-label="Body weight, from your latest entry"'} readonly aria-readonly="true" value="${fmtW(bw.weight)}" title="Your latest body weight, from ${fmtShort(bw.date)}" class="${inputCls} tabular pr-14 bg-slate-50 text-slate-700 cursor-default focus-visible:ring-slate-300 focus-visible:border-gray-300" />
+            <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1 text-sm text-slate-400">lbs${icon("lock", "w-3.5 h-3.5")}</span>
+          </div>`;
+        }
+        return `<div class="relative ${extra}">
+          <input name="weight" ${label ? 'id="f-weight"' : `aria-label="${isBW() ? "Body weight" : "Weight"}"`} type="number" inputmode="decimal" step="0.01" min="0" placeholder="${isBW() ? "Body weight" : "Weight"}" value="${state.form.weight}" class="${inputCls} tabular pr-10 ${errCls("weight")}" />
+          <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">lbs</span>
+        </div>`;
+      }
+      const repsField = (extra = "", label = false) =>
+        `<input name="reps" ${label ? 'id="f-reps"' : 'aria-label="Reps"'} type="number" inputmode="numeric" step="1" min="1" placeholder="Reps" value="${state.form.reps}" class="${inputCls} tabular ${errCls("reps")} ${extra}" />`;
+      const canSubmit = () => !!state.form.movementId && state.form.reps !== "" && (locked() || state.form.weight !== "");
+      const addButton = (extra = "", text = "Add") =>
+        `<button type="submit" ${canSubmit() ? "" : "disabled"} class="${btnPrimary} h-10 sm:h-8 px-3 text-sm ${extra}">${icon("plus")}${text}</button>`;
+      // A and C: the button sits at the end of the row on desktop, and closes the form on mobile.
+      const addButtonRow = () => `<div class="hidden sm:block shrink-0">${addButton()}</div>`;
+      const addButtonEnd = () => `<div class="sm:hidden">${addButton("w-full")}</div>`;
+
+      // The line under the form that explains where the weight came from.
+      function bodyWeightNote() {
+        if (!isBW()) return "";
+        const bw = latestBW();
+        if (bw)
+          return `<p class="flex items-center gap-1.5 text-xs text-slate-500">${icon("lock", "w-3.5 h-3.5 shrink-0")}<span>${selected().name} uses your latest body weight: <span class="font-medium text-slate-700 tabular">${fmtW(bw.weight)} lbs</span> from ${fmtShort(bw.date)}.</span></p>`;
+        return `<div class="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          ${icon("info", "w-4 h-4 mt-0.5 shrink-0")}
+          <p>No body weight recorded yet. Enter it as the weight: it's saved as today's body weight too.</p>
+        </div>`;
+      }
+      function errorsBlock() {
+        const msgs = ["weight", "reps", "added", "note"].map((k) => state.errors[k]).filter(Boolean);
+        if (!msgs.length) return state.flash ? `<p class="text-sm text-slate-500" role="status">${state.flash}</p>` : "";
+        return `<div role="alert" class="space-y-0.5">${msgs.map((m) => `<p class="text-sm text-red-600">${m}</p>`).join("")}</div>`;
+      }
+      // Sign as two buttons (no minus key on phone keypads).
+      function signControl(cls = "") {
+        const seg = [[1, "plus", "Extra"], [-1, "minus", "Assistance"]];
+        return `<div role="group" aria-label="Added weight type" class="inline-flex rounded-lg border border-gray-300 bg-white p-0.5 ${cls}">${seg
+          .map(
+            ([v, ic, label]) =>
+              `<button type="button" data-sign="${v}" aria-pressed="${state.added.sign === v}" class="flex-1 sm:flex-none inline-flex items-center justify-center gap-1 h-8 px-2.5 rounded text-sm font-medium whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${state.added.sign === v ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:text-slate-900"}">${icon(ic, "w-3.5 h-3.5")}${label}</button>`,
+          )
+          .join("")}</div>`;
+      }
+      const amountField = (extra = "") =>
+        `<div class="relative ${extra}"><input name="amount" aria-label="Added weight in pounds" type="number" inputmode="decimal" step="0.01" min="0" placeholder="Amount" value="${state.added.amount}" class="${inputCls} tabular pr-10 ${errCls("added")}" /><span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">lbs</span></div>`;
+      const noteField = (extra = "", label = false) =>
+        `<input name="note" ${label ? 'id="f-note"' : 'aria-label="Description of the added weight"'} maxlength="60" placeholder="${state.added.sign < 0 ? "e.g. resistance band" : "e.g. weighted vest"}" value="${state.added.note}" class="${inputCls} ${errCls("note")} ${extra}" />`;
+
+      // Load preview: Body Weight Snapshot plus Added Weight.
+      function loadPreview() {
+        const w = weightValue();
+        if (w === null || !isBW()) return "";
+        const a = addedValue();
+        if (a === null) return `<span class="tabular">Load: <span class="font-medium text-slate-900">${fmtW(w)} lbs</span></span>`;
+        return `<span class="tabular">Load: ${fmtW(w)} ${a < 0 ? "−" : "+"} ${fmtW(Math.abs(a))} = <span class="font-medium text-slate-900">${fmtW(r2(w + a))} lbs</span></span>`;
+      }
+
+      // ---------- Set rows ----------
+      function setRows(showLoad) {
+        if (!state.sets.length) return `<p class="text-sm text-slate-500">No sets yet. Add exercises to your workout!</p>`;
+        return `<ul class="space-y-2">${state.sets
+          .map((s) => {
+            const m = mv(s.movementId);
+            const comp =
+              s.addedWeight === null
+                ? `${fmtW(s.weight)} lbs`
+                : `${fmtW(s.weight)} lbs ${s.addedWeight < 0 ? "−" : "+"} ${fmtW(Math.abs(s.addedWeight))} lbs <span class="text-slate-400">(${s.note})</span>`;
+            const loadTxt = showLoad && s.addedWeight !== null ? `<span class="text-slate-400"> = </span><span class="text-slate-700">${fmtW(load(s))} lbs</span>` : "";
+            return `<li class="px-3 py-2 bg-slate-50 rounded-lg text-sm flex items-center justify-between gap-3">
+              <div class="min-w-0 tabular"><span class="font-medium">${m.name}</span><span class="text-slate-500 ml-2">${s.reps} reps × ${comp}${loadTxt}</span></div>
+              <button aria-label="Remove set" data-remove="${s.id}" class="shrink-0 inline-flex items-center justify-center h-8 w-8 rounded-lg text-slate-400 hover:bg-gray-100 hover:text-gray-900 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50">${icon("x")}</button>
+            </li>`;
+          })
+          .join("")}</ul>`;
+      }
+
+      function page(formHtml, showLoad) {
+        const title = today.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+        return `<div class="space-y-6">
+          <div class="flex items-center justify-between gap-4">
+            <h1 class="text-2xl font-semibold text-slate-900">Current Workout</h1>
+            <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium h-10 px-4 text-sm border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-colors">${icon("check")}Complete Workout</button>
+          </div>
+          <div class="rounded-xl border border-slate-200 bg-white shadow-sm">
+            <div class="p-4 md:p-6"><h2 class="text-lg font-semibold leading-none tracking-tight text-slate-900">${title}</h2></div>
+            <div class="px-4 md:px-6 pb-4 md:pb-6 space-y-4">
+              ${formHtml}
+              ${setRows(showLoad)}
+            </div>
+          </div>
+        </div>`;
+      }
+
+      // ---------- Variant A: today's row stays; Added Weight opens a second row on demand ----------
+      function VariantA() {
+        let addedRow = "";
+        if (isBW()) {
+          addedRow = state.added.open
+            ? `<div class="flex flex-col sm:flex-row gap-2 sm:items-center">
+                ${signControl("w-full sm:w-auto")}
+                ${amountField("sm:w-28")}
+                ${noteField("sm:flex-1")}
+                <button type="button" data-added-close aria-label="Remove added weight" class="${btnGhost} h-10 sm:w-10 text-slate-400">${icon("x")}<span class="sm:hidden">Remove added weight</span></button>
+              </div>`
+            : `<button type="button" data-added-open class="${btnGhost} h-8 px-2 -ml-2 text-sm text-slate-600">${icon("plus")}Added weight</button>`;
+        }
+        const form = `<form data-form novalidate class="space-y-2">
+            <div class="flex flex-col sm:flex-row gap-2 sm:items-center">
+              ${movementSelect("sm:flex-1")}
+              ${weightField("sm:w-32")}
+              ${repsField("sm:w-24")}
+              ${addButtonRow()}
+            </div>
+            ${bodyWeightNote()}
+            ${addedRow}
+            ${errorsBlock()}
+            ${addButtonEnd()}
+          </form>`;
+        return page(form, false);
+      }
+
+      // ---------- Variant B: labeled fields; for body-weight movements Added Weight is always there, with a live Load ----------
+      function VariantB() {
+        const bw = isBW();
+        const signBtn = `<button type="button" data-sign-toggle aria-label="${state.added.sign > 0 ? "Extra weight. Switch to assistance" : "Assistance. Switch to extra weight"}" class="absolute left-1 top-1 bottom-1 w-9 inline-flex items-center justify-center rounded-md border border-gray-200 bg-slate-50 text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50">${icon(state.added.sign > 0 ? "plus" : "minus")}</button>`;
+        const addedBlock = bw
+          ? `<div class="grid gap-3 sm:grid-cols-[11rem_minmax(0,1fr)]">
+              <div class="space-y-2">
+                <label for="f-amount" class="${labelCls}">Added weight <span class="font-normal text-slate-400">(optional)</span></label>
+                <div class="relative">${signBtn}<input id="f-amount" name="amount" type="number" inputmode="decimal" step="0.01" min="0" placeholder="0" value="${state.added.amount}" class="${inputCls} tabular pl-12 pr-10 ${errCls("added")}" /><span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">lbs</span></div>
+              </div>
+              <div class="space-y-2">
+                <label for="f-note" class="${labelCls}">Description</label>
+                ${noteField("", true)}
+              </div>
+            </div>
+            <p class="text-xs text-slate-500"><span class="inline-flex items-center gap-1 align-middle">${icon("plus", "w-3 h-3")}</span> extra load, <span class="inline-flex items-center gap-1 align-middle">${icon("minus", "w-3 h-3")}</span> assistance. A description is required when you add weight.</p>`
+          : "";
+        const form = `<form data-form novalidate class="space-y-4">
+            <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_9rem_6rem]">
+              <div class="space-y-2"><label for="f-mv" class="${labelCls}">Movement</label>${movementSelect().replace('aria-label="Movement"', 'id="f-mv"')}</div>
+              <div class="space-y-2"><label for="f-weight" class="${labelCls}">${bw ? "Body weight" : "Weight"}</label>${weightField("", true)}</div>
+              <div class="space-y-2"><label for="f-reps" class="${labelCls}">Reps</label>${repsField("", true)}</div>
+            </div>
+            ${bodyWeightNote()}
+            ${addedBlock}
+            <div class="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3">
+              <p class="text-sm text-slate-500" data-load>${loadPreview()}</p>
+              ${addButton("w-full sm:w-auto sm:h-10 sm:px-4", "Add set")}
+            </div>
+            ${errorsBlock()}
+          </form>`;
+        return page(form, true);
+      }
+
+      // ---------- Variant C: today's row stays; a row of presets sets the sign and the description in one tap ----------
+      function VariantC() {
+        let presetBlock = "";
+        if (isBW()) {
+          const chip = (key, label, ic) => {
+            const on = state.added.preset === key;
+            return `<button type="button" data-preset="${key}" aria-pressed="${on}" class="inline-flex items-center gap-1 h-8 px-3 rounded-full border text-sm whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${on ? "border-slate-400 bg-slate-100 text-slate-900 font-medium" : "border-gray-300 bg-white text-slate-600 hover:border-gray-400 hover:text-slate-900"}">${ic ? icon(ic, "w-3.5 h-3.5") : ""}${label}</button>`;
+          };
+          const chips = [chip("none", "No added weight")]
+            .concat(PRESETS.map((p) => chip(p.key, p.label, p.sign > 0 ? "plus" : "minus")))
+            .concat([chip("other", "Other…")])
+            .join("");
+          const p = state.added.preset;
+          const detail =
+            p === "none"
+              ? ""
+              : `<div class="flex flex-col sm:flex-row gap-2 sm:items-center">
+                  ${p === "other" ? signControl("w-full sm:w-auto") : ""}
+                  ${amountField("sm:w-32")}
+                  ${p === "other" ? noteField("sm:flex-1") : ""}
+                  <p class="text-sm text-slate-500 sm:ml-2" data-load>${loadPreview()}</p>
+                </div>`;
+          presetBlock = `<div class="space-y-2">
+              <div class="flex gap-2 overflow-x-auto -mx-1 px-1 pb-1 sm:flex-wrap" role="group" aria-label="Added weight">${chips}</div>
+              ${detail}
+            </div>`;
+        }
+        const form = `<form data-form novalidate class="space-y-3">
+            <div class="flex flex-col sm:flex-row gap-2 sm:items-center">
+              ${movementSelect("sm:flex-1")}
+              ${weightField("sm:w-32")}
+              ${repsField("sm:w-24")}
+              ${addButtonRow()}
+            </div>
+            ${bodyWeightNote()}
+            ${presetBlock}
+            ${errorsBlock()}
+            ${addButtonEnd()}
+          </form>`;
+        return page(form, true);
+      }
+
+      // ---------- Render ----------
+      const app = document.getElementById("app");
+      const bar = document.getElementById("bar");
+      function setParam(k, v) {
+        const p = new URLSearchParams(location.search);
+        p.set(k, v);
+        history.replaceState(null, "", `${location.pathname}?${p}`);
+      }
+      function renderFrames() {
+        const src = (w) => `${location.pathname}?variant=${variant}&data=${dataset}&embed=1&w=${w}`;
+        const phone = `<div class="flex flex-col gap-2 shrink-0"><p class="text-xs font-medium text-slate-500">Mobile · 390 px</p>
+          <iframe title="Mobile" src="${src(390)}" class="bg-white rounded-xl border border-slate-300 shadow-sm" style="width:390px;height:844px"></iframe></div>`;
+        if (view === "mobile") { app.innerHTML = `<div class="min-h-screen flex justify-center p-6 pb-28 bg-slate-200">${phone}</div>`; return; }
+        const sc = Math.min(1, (window.innerWidth - 48 - 24 - 392) / 1280);
+        app.innerHTML = `<div class="min-h-screen flex gap-6 items-start p-6 pb-28 bg-slate-200">
+          <div class="flex flex-col gap-2 shrink-0">
+            <p class="text-xs font-medium text-slate-500">Desktop · 1280 px${sc < 1 ? ` (shown at ${Math.round(sc * 100)}%)` : ""}</p>
+            <div style="width:${1280 * sc}px;height:${800 * sc}px" class="overflow-hidden rounded-xl border border-slate-300 shadow-sm bg-white">
+              <iframe title="Desktop" src="${src(1280)}" style="width:1280px;height:800px;transform:scale(${sc});transform-origin:top left"></iframe>
+            </div>
+          </div>${phone}</div>`;
+      }
+      function render() {
+        if (!embedded && view !== "desktop") renderFrames();
+        else {
+          app.innerHTML = shell({ A: VariantA, B: VariantB, C: VariantC }[variant]());
+          bindPage();
+        }
+        if (!embedded) renderBar();
+        if (window.lucide) lucide.createIcons();
+      }
+      const refocus = (name) => {
+        const el = app.querySelector(`[name="${name}"]`);
+        if (!el) return;
+        el.focus();
+        const v = el.value;
+        el.value = "";
+        el.value = v; // caret at the end
+      };
+      // Typing updates state without a full re-render; only the Load line and the Add button follow along.
+      function liveUpdate() {
+        app.querySelectorAll("[data-load]").forEach((el) => (el.innerHTML = loadPreview()));
+        app.querySelectorAll('button[type="submit"]').forEach((b) => (b.disabled = !canSubmit()));
+      }
+      function bindPage() {
+        const f = app.querySelector("[data-form]");
+        if (!f) return;
+        f.addEventListener("submit", addSet);
+        f.querySelector('[name="movement"]').addEventListener("change", (e) => {
+          state.form.movementId = e.target.value;
+          state.errors = {};
+          state.flash = "";
+          render();
+          app.querySelector('[name="movement"]').focus();
+        });
+        const onType = (name, setter) => {
+          const el = f.querySelector(`[name="${name}"]`);
+          if (!el) return;
+          el.addEventListener("input", () => {
+            setter(el.value);
+            if (Object.keys(state.errors).length || state.flash) { state.errors = {}; state.flash = ""; render(); refocus(name); return; }
+            liveUpdate();
+          });
+        };
+        onType("weight", (v) => { if (!locked()) state.form.weight = v; });
+        onType("reps", (v) => (state.form.reps = v));
+        onType("amount", (v) => (state.added.amount = v));
+        onType("note", (v) => (state.added.note = v));
+        app.querySelectorAll("[data-sign]").forEach((b) => b.addEventListener("click", () => { state.added.sign = Number(b.dataset.sign); render(); }));
+        app.querySelectorAll("[data-sign-toggle]").forEach((b) => b.addEventListener("click", () => { state.added.sign *= -1; render(); refocus("amount"); }));
+        app.querySelectorAll("[data-added-open]").forEach((b) => b.addEventListener("click", () => { state.added.open = true; render(); refocus("amount"); }));
+        app.querySelectorAll("[data-added-close]").forEach((b) => b.addEventListener("click", () => { state.added = blankAdded(); state.errors = {}; render(); }));
+        app.querySelectorAll("[data-preset]").forEach((b) =>
+          b.addEventListener("click", () => {
+            const k = b.dataset.preset;
+            const p = PRESETS.find((x) => x.key === k);
+            state.added.preset = k;
+            if (p) state.added.sign = p.sign;
+            if (k === "none") state.added.amount = "";
+            state.errors = {};
+            render();
+            if (k !== "none") refocus("amount");
+          }),
+        );
+        app.querySelectorAll("[data-remove]").forEach((b) => b.addEventListener("click", () => removeSet(Number(b.dataset.remove))));
+      }
+
+      // ---------- Prototype bar (not part of the design) ----------
+      function weighIn() {
+        // Simulates recording a new body weight in Profile: sets already logged keep their snapshot.
+        const bw = latestBW();
+        const next = bw ? r2(bw.weight - 1.6) : 171.2;
+        state.bodyWeight = state.bodyWeight.filter((e) => e.date !== TODAY).concat([{ date: TODAY, weight: next }]);
+        state.flash = "";
+        render();
+      }
+      function renderBar() {
+        const v = VARIANTS.find((x) => x.key === variant);
+        const seg = (group, opts, cur) =>
+          `<div class="flex rounded-full bg-white/10 p-0.5">${opts.map(([k, label]) => `<button data-${group}="${k}" class="px-2.5 py-1 rounded-full text-xs whitespace-nowrap ${k === cur ? "bg-white text-slate-900" : "text-white/80 hover:text-white"}">${label}</button>`).join("")}</div>`;
+        const stateJson = JSON.stringify({ variant, dataset, form: state.form, added: state.added, latestBodyWeight: latestBW(), bodyWeightEntries: state.bodyWeight, sets: state.sets.map((s) => ({ ...s, movement: mv(s.movementId).name, load: load(s) })) }, null, 2);
+        bar.innerHTML = `
+          ${state.showState && view === "desktop" ? `<pre class="fixed bottom-20 right-4 z-50 max-h-[50vh] w-80 overflow-auto rounded-xl bg-slate-900 p-3 text-[11px] leading-snug text-slate-100 shadow-lg">${stateJson}</pre>` : ""}
+          <div class="fixed bottom-4 inset-x-0 mx-auto w-fit z-50 flex flex-wrap justify-center items-center gap-x-3 gap-y-1 max-w-[calc(100vw-1rem)] rounded-3xl bg-slate-900 text-white pl-2 pr-3 py-1.5 shadow-lg ring-1 ring-black/10 text-sm">
+            <span class="text-[10px] font-semibold uppercase tracking-wider text-amber-300 px-2">Prototype</span>
+            <button data-prev aria-label="Previous variant" class="h-7 w-7 inline-flex items-center justify-center rounded-full hover:bg-white/10">${icon("chevron-left")}</button>
+            <span class="min-w-56 text-center"><span class="font-semibold">${v.key}</span> · ${v.name}</span>
+            <button data-next aria-label="Next variant" class="h-7 w-7 inline-flex items-center justify-center rounded-full hover:bg-white/10">${icon("chevron-right")}</button>
+            ${seg("view", [["desktop", "Desktop"], ["mobile", "Mobile"], ["both", "Both"]], view)}
+            ${seg("data", DATASETS, dataset)}
+            ${view === "desktop" ? `<button data-weighin class="px-2.5 py-1 rounded-full text-xs text-white/80 hover:text-white bg-white/10" title="Record a new body weight today, as if from Profile">Weigh in</button>
+            <button data-state class="px-2.5 py-1 rounded-full text-xs ${state.showState ? "bg-white text-slate-900" : "text-white/80 hover:text-white bg-white/10"}">State</button>` : ""}
+          </div>`;
+        bar.querySelector("[data-prev]").onclick = () => cycle(-1);
+        bar.querySelector("[data-next]").onclick = () => cycle(1);
+        bar.querySelectorAll("[data-view]").forEach((b) => (b.onclick = () => { view = b.dataset.view; setParam("view", view); render(); }));
+        bar.querySelectorAll("[data-data]").forEach((b) => (b.onclick = () => { dataset = b.dataset.data; setParam("data", dataset); Object.assign(state, initialData()); state.errors = {}; state.flash = ""; render(); }));
+        const w = bar.querySelector("[data-weighin]");
+        if (w) w.onclick = weighIn;
+        const s = bar.querySelector("[data-state]");
+        if (s) s.onclick = () => { state.showState = !state.showState; render(); };
+      }
+      function cycle(dir) {
+        const i = VARIANTS.findIndex((x) => x.key === variant);
+        variant = VARIANTS[(i + dir + VARIANTS.length) % VARIANTS.length].key;
+        setParam("variant", variant);
+        state.added = blankAdded();
+        state.errors = {};
+        render();
+      }
+      document.addEventListener("keydown", (e) => {
+        if (embedded) return;
+        const t = e.target;
+        if (t.closest && t.closest("input, textarea, select, [contenteditable]")) return;
+        if (e.key === "ArrowLeft") cycle(-1);
+        if (e.key === "ArrowRight") cycle(1);
+      });
+      // Start on a body-weight movement so the interesting state shows first.
+      state.form.movementId = "pullup";
+      render();
+    </script>
+  </body>
+</html>

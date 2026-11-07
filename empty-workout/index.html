@@ -1,0 +1,508 @@
+<!doctype html>
+<!--
+  PROTOTYPE, throwaway. Not production code.
+  Question: what should happen, on screen, when someone completes a workout with no sets
+  (Save as gym visit / Discard workout / Keep logging, no default), and how does a Gym Visit
+  read in Workout History?
+  Three variants of the choice, switchable with ?variant=A|B|C and the bar at the bottom.
+  ?view=desktop|mobile|both, ?data=empty|sets. The sidebar links work (Current Workout / Workout History).
+  Everything is in memory (resets on reload).
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Prototype · Complete an empty workout · Gym Visit</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+    <style type="text/tailwindcss">
+      @theme {
+        --color-primary: oklch(55% 0.2 35);
+      }
+      ::selection {
+        background: oklch(55% 0.2 35 / 0.18);
+      }
+      /* Anything clickable shows the pointer (Tailwind v4's preflight leaves buttons on the default cursor). */
+      button:not(:disabled),
+      [role="button"]:not([aria-disabled="true"]),
+      a[href],
+      select:not(:disabled),
+      summary,
+      label[for],
+      input[type="checkbox"]:not(:disabled),
+      input[type="radio"]:not(:disabled) {
+        cursor: pointer;
+      }
+      .tabular {
+        font-variant-numeric: tabular-nums;
+      }
+      @keyframes sheet-up {
+        from { transform: translateY(16px); opacity: 0; }
+        to { transform: none; opacity: 1; }
+      }
+      @keyframes fade-in {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      .anim-sheet { animation: sheet-up 160ms ease-out; }
+      .anim-fade { animation: fade-in 120ms ease-out; }
+      @media (prefers-reduced-motion: reduce) {
+        .anim-sheet, .anim-fade { animation: none; }
+      }
+    </style>
+  </head>
+  <body class="bg-slate-50 text-slate-900 antialiased">
+    <div id="app"></div>
+    <div id="bar"></div>
+
+    <script>
+      // ---------- URL params ----------
+      const params = new URLSearchParams(location.search);
+      const VARIANTS = [
+        { key: "A", name: "Centered dialog" },
+        { key: "B", name: "Action sheet with explanations" },
+        { key: "C", name: "Inline panel, no dialog" },
+      ];
+      const DATASETS = [["empty", "Empty workout"], ["sets", "Workout with sets"]];
+      let variant = VARIANTS.some((v) => v.key === params.get("variant")) ? params.get("variant") : "A";
+      let view = ["desktop", "mobile", "both"].includes(params.get("view")) ? params.get("view") : "desktop";
+      let dataset = DATASETS.some(([k]) => k === params.get("data")) ? params.get("data") : "empty";
+      const embedded = params.get("embed") === "1";
+
+      // ---------- Dates ----------
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const pad = (n) => String(n).padStart(2, "0");
+      const toISO = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      const daysAgo = (n) => { const d = new Date(today); d.setDate(d.getDate() - n); return toISO(d); };
+      const fromISO = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+      const fmtShort = (s) => fromISO(s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+      // ---------- Sample data (synthetic) ----------
+      const MOVEMENTS = [
+        { id: "bench", name: "Bench Press" },
+        { id: "squat", name: "Back Squat" },
+        { id: "deadlift", name: "Deadlift" },
+      ];
+      const mvName = (id) => MOVEMENTS.find((m) => m.id === id).name;
+      const s = (movementId, weight, reps) => ({ movementId, weight, reps });
+      function initialData() {
+        let id = 0;
+        const history = [
+          { id: `w${++id}`, date: daysAgo(2), sets: [s("squat", 255, 5), s("squat", 255, 5), s("squat", 245, 6)] },
+          { id: `w${++id}`, date: daysAgo(4), sets: [] }, // an earlier Gym Visit
+          { id: `w${++id}`, date: daysAgo(7), sets: [s("bench", 205, 6), s("bench", 200, 7), s("deadlift", 315, 4)] },
+          { id: `w${++id}`, date: daysAgo(9), sets: [s("squat", 250, 5), s("squat", 250, 4)] },
+        ];
+        const current = { id: `w${++id}`, sets: dataset === "sets" ? [s("bench", 185, 6), s("bench", 185, 5)] : [] };
+        return { history, current, nextId: id + 1 };
+      }
+
+      // ---------- State (in memory) ----------
+      const state = {
+        ...initialData(),
+        page: "current", // current | history
+        choiceOpen: dataset === "empty", // starts open: the choice is what the variants differ in
+        notice: null, // { text, link }
+        selected: new Set(),
+        form: { movementId: "", weight: "", reps: "" },
+        showState: false,
+      };
+      let lastFocus = null;
+
+      // ---------- Actions (mirror complete(db, userId, { whenEmpty })) ----------
+      function completeWorkout() {
+        if (!state.current) return;
+        if (state.current.sets.length === 0) {
+          // The server answers "empty-workout"; the screen asks.
+          lastFocus = document.activeElement;
+          state.choiceOpen = true;
+          render();
+          return;
+        }
+        finish("Workout completed.");
+      }
+      function finish(text, link = true) {
+        state.history.unshift({ id: state.current.id, date: toISO(today), sets: state.current.sets });
+        state.current = null;
+        state.choiceOpen = false;
+        state.notice = { text, link };
+        render();
+      }
+      function choose(kind) {
+        if (kind === "save") finish("Saved as a gym visit.");
+        if (kind === "discard") {
+          // Only an empty workout can be discarded.
+          state.current = null;
+          state.choiceOpen = false;
+          state.notice = { text: "Workout discarded.", link: false };
+          render();
+        }
+        if (kind === "keep") closeChoice();
+      }
+      function closeChoice() {
+        state.choiceOpen = false;
+        render();
+        // Back to logging: focus the movement picker so the next step is adding a set.
+        const el = app.querySelector('[name="movement"]');
+        if (el) el.focus();
+      }
+      function startWorkout() {
+        state.current = { id: `w${state.nextId++}`, sets: [] };
+        state.notice = null;
+        render();
+      }
+      function addSet(e) {
+        e.preventDefault();
+        const f = state.form;
+        if (!f.movementId || !f.weight || !f.reps) return;
+        state.current.sets.push(s(f.movementId, Number(f.weight), Number(f.reps)));
+        f.reps = "";
+        render();
+      }
+      function deleteSelected() {
+        state.history = state.history.filter((w) => !state.selected.has(w.id));
+        state.selected = new Set();
+        render();
+      }
+
+      // ---------- Shared pieces ----------
+      const icon = (name, cls = "w-4 h-4") => `<i data-lucide="${name}" class="${cls}"></i>`;
+      const WORDMARK = `<svg width="136" height="36" viewBox="0 0 136 36" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Setlist" class="h-6 w-auto">
+        <rect width="36" height="36" rx="9" fill="#cc2d00"/>
+        <rect x="8" y="9" width="20" height="4" rx="2" fill="#ffffff"/>
+        <rect x="8" y="16" width="14" height="4" rx="2" fill="#ffffff"/>
+        <rect x="8" y="23" width="8" height="4" rx="2" fill="#ffffff"/>
+        <text x="46" y="27" fill="#0f172a" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="26" font-weight="700" letter-spacing="-0.5">Setlist</text>
+      </svg>`;
+      function shell(content) {
+        const nav = [["dumbbell", "Current Workout", "current"], ["history", "Workout History", "history"], ["biceps-flexed", "Movements", null]]
+          .map(([i, label, page]) => {
+            const active = page === state.page;
+            return `<a href="#" ${page ? `data-nav="${page}"` : ""} ${active ? 'aria-current="page"' : ""} class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${active ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}">${icon(i)}${label}</a>`;
+          })
+          .join("");
+        return `
+        <div class="min-h-screen md:flex bg-slate-50">
+          <nav class="hidden md:flex w-64 shrink-0 bg-white border-r border-slate-200 p-4 flex-col">
+            <div class="mb-8">${WORDMARK}</div>
+            <div class="flex flex-col gap-1 flex-1">${nav}</div>
+            <div class="border-t border-slate-200 pt-4 mt-4 space-y-2">
+              <a href="#" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
+                ${icon("user")}<div class="truncate"><p class="text-xs text-slate-500">Logged in as</p><p class="font-medium truncate">Alex Rivera</p></div>
+              </a>
+              <button class="inline-flex items-center gap-3 w-full h-8 px-3 rounded-lg text-sm font-medium text-slate-600 hover:bg-gray-100 hover:text-gray-900 transition-colors">${icon("log-out")}Log out</button>
+            </div>
+          </nav>
+          <div class="md:hidden flex items-center justify-between h-14 px-4 bg-white border-b border-slate-200">
+            ${WORDMARK}
+            <span class="flex gap-1">
+              <button data-nav="current" class="text-xs px-2 py-1 rounded ${state.page === "current" ? "bg-slate-100 text-slate-900" : "text-slate-500"}">Workout</button>
+              <button data-nav="history" class="text-xs px-2 py-1 rounded ${state.page === "history" ? "bg-slate-100 text-slate-900" : "text-slate-500"}">History</button>
+            </span>
+          </div>
+          <main class="flex-1 min-w-0 p-4 md:p-6 pb-24" ${state.choiceOpen && variant !== "C" ? 'aria-hidden="true"' : ""}>${content}</main>
+        </div>`;
+      }
+      const inputCls =
+        "flex h-10 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:border-primary";
+      const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2";
+      const btn = {
+        primary: `inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition-colors bg-primary text-white hover:bg-primary/90 shadow-sm ${focusRing} disabled:pointer-events-none disabled:opacity-50`,
+        outline: `inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition-colors border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-400 ${focusRing}`,
+        danger: `inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition-colors border border-red-200 bg-white text-red-700 hover:bg-red-50 hover:border-red-300 ${focusRing}`,
+        ghost: `inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition-colors text-gray-700 hover:bg-gray-100 hover:text-gray-900 ${focusRing}`,
+        destructive: `inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition-colors bg-red-600 text-white hover:bg-red-700 shadow-sm ${focusRing} disabled:pointer-events-none disabled:opacity-50`,
+      };
+      const card = (inner) => `<div class="rounded-xl border border-slate-200 bg-white shadow-sm">${inner}</div>`;
+      const title = (t) => `<h2 class="text-lg font-semibold leading-none tracking-tight text-slate-900">${t}</h2>`;
+
+      // The copy is shared by every variant.
+      const COPY = {
+        heading: "This workout has no sets",
+        body: "Save it as a gym visit to keep a record that you went, or discard it. Gym visits show in your history but not in your progress charts.",
+        save: "Save as gym visit",
+        discard: "Discard workout",
+        keep: "Keep logging",
+      };
+
+      // ---------- Current Workout page ----------
+      function noticeBar() {
+        if (!state.notice) return "";
+        return `<div role="status" class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
+          ${icon("check", "w-4 h-4 text-slate-500")}<span>${state.notice.text}</span>
+          ${state.notice.link ? `<a href="#" data-nav="history" class="font-medium text-primary underline-offset-4 hover:underline">View in history</a>` : ""}
+        </div>`;
+      }
+      function currentPage() {
+        if (!state.current)
+          return `<div class="space-y-6">
+            <h1 class="text-2xl font-semibold text-slate-900">Current Workout</h1>
+            ${noticeBar()}
+            ${card(`<div class="py-12 px-6 text-center">
+              <p class="text-slate-500 mb-4">No active workout. Ready to start?</p>
+              <button data-start class="${btn.primary} h-12 px-6 text-lg">${icon("play")}Start Workout</button>
+            </div>`)}
+          </div>`;
+        const date = today.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+        const opts = MOVEMENTS.map((m) => `<option value="${m.id}" ${m.id === state.form.movementId ? "selected" : ""}>${m.name}</option>`).join("");
+        const can = state.form.movementId && state.form.weight && state.form.reps;
+        const sets = state.current.sets.length
+          ? `<ul class="space-y-2">${state.current.sets
+              .map((x) => `<li class="px-3 py-2 bg-slate-50 rounded-lg text-sm flex items-center justify-between"><div class="tabular"><span class="font-medium">${mvName(x.movementId)}</span><span class="text-slate-500 ml-2">${x.reps} reps × ${x.weight} lbs</span></div><span class="h-8 w-8 inline-flex items-center justify-center text-slate-400">${icon("x")}</span></li>`)
+              .join("")}</ul>`
+          : `<p class="text-sm text-slate-500">No sets yet. Add exercises to your workout!</p>`;
+        const inline = variant === "C" && state.choiceOpen ? inlinePanel() : "";
+        return `<div class="space-y-6">
+          <div class="flex items-center justify-between gap-4">
+            <h1 class="text-2xl font-semibold text-slate-900">Current Workout</h1>
+            <button data-complete ${variant === "C" && state.choiceOpen ? 'aria-expanded="true" aria-controls="empty-choice"' : ""} class="${btn.outline} h-10 px-4 text-sm">${icon("check")}Complete Workout</button>
+          </div>
+          ${card(`
+            <div class="p-4 md:p-6">${title(date)}</div>
+            <div class="px-4 md:px-6 pb-4 md:pb-6 space-y-4">
+              ${inline}
+              <form data-form class="flex flex-col sm:flex-row gap-2 sm:items-center">
+                <select name="movement" aria-label="Movement" class="${inputCls} sm:flex-1"><option value="">Select movement</option>${opts}</select>
+                <input name="weight" aria-label="Weight" type="number" inputmode="decimal" placeholder="Weight" value="${state.form.weight}" class="${inputCls} sm:w-24" />
+                <input name="reps" aria-label="Reps" type="number" inputmode="numeric" placeholder="Reps" value="${state.form.reps}" class="${inputCls} sm:w-24" />
+                <button type="submit" ${can ? "" : "disabled"} class="${btn.primary} h-10 sm:h-8 px-3 text-sm">${icon("plus")}Add</button>
+              </form>
+              ${sets}
+            </div>`)}
+        </div>`;
+      }
+
+      // ---------- Workout History page (a Gym Visit row) ----------
+      function historyPage() {
+        const list = state.history;
+        const cols = MOVEMENTS.filter((m) => list.some((w) => w.sets.some((x) => x.movementId === m.id)));
+        const all = list.length > 0 && state.selected.size === list.length;
+        const rows = list
+          .map((w) => {
+            const sel = state.selected.has(w.id);
+            const check = `<td class="py-3 px-4"><input type="checkbox" data-select="${w.id}" ${sel ? "checked" : ""} aria-label="Select workout" class="rounded border-gray-300" /></td>`;
+            const date = `<td class="py-3 px-4 text-slate-500 whitespace-nowrap">${fmtShort(w.date)}</td>`;
+            if (w.sets.length === 0)
+              return `<tr class="border-b border-slate-100 ${sel ? "bg-primary/10" : "hover:bg-slate-50"}">${check}${date}
+                <td colspan="${cols.length + 1}" class="py-3 px-4 text-slate-500"><span class="inline-flex items-center gap-2">${icon("calendar-check", "w-4 h-4 text-slate-400")}Gym visit, no sets logged</span></td></tr>`;
+            const cells = cols
+              .map((m) => {
+                const ss = w.sets.filter((x) => x.movementId === m.id);
+                if (!ss.length) return `<td class="py-3 px-4 text-right text-slate-300">-</td>`;
+                const max = Math.max(...ss.map((x) => x.weight));
+                const avg = Math.round(ss.reduce((a, x) => a + x.reps, 0) / ss.length);
+                return `<td class="py-3 px-4 text-right text-slate-600 whitespace-nowrap">${max} lbs / ${avg} reps / ${ss.length} sets</td>`;
+              })
+              .join("");
+            return `<tr class="border-b border-slate-100 ${sel ? "bg-primary/10" : "hover:bg-slate-50"}">${check}${date}<td class="py-3 px-4 text-right text-slate-600">${w.sets.length}</td>${cells}</tr>`;
+          })
+          .join("");
+        const body = list.length
+          ? `<div class="overflow-x-auto"><table class="w-full text-sm tabular">
+              <thead><tr class="border-b border-slate-200">
+                <th class="py-3 px-4"><input type="checkbox" data-select-all ${all ? "checked" : ""} aria-label="Select all workouts" class="rounded border-gray-300" /></th>
+                <th class="text-left py-3 px-4 font-medium text-slate-600">Date</th>
+                <th class="text-right py-3 px-4 font-medium text-slate-600">Sets</th>
+                ${cols.map((m) => `<th class="text-right py-3 px-4 font-medium text-slate-600 whitespace-nowrap">${m.name}</th>`).join("")}
+              </tr></thead><tbody>${rows}</tbody></table></div>`
+          : `<p class="text-sm text-slate-500">No completed workouts yet.</p>`;
+        return `<div class="space-y-6">
+          <h1 class="text-2xl font-semibold text-slate-900">Workout History</h1>
+          <div class="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-500">Progression chart above this table: see the Workout History prototype. Gym visits add no point to it.</div>
+          ${card(`
+            <div class="flex flex-row items-center justify-between gap-4 p-4 md:p-6">
+              ${title("Completed Workouts")}
+              <button data-delete ${state.selected.size ? "" : "disabled"} class="${btn.destructive} h-8 px-3 text-sm">${icon("trash-2")}Delete Selected (${state.selected.size})</button>
+            </div>
+            <div class="px-4 md:px-6 pb-4 md:pb-6">${body}</div>`)}
+        </div>`;
+      }
+
+      // ---------- The choice: three variants ----------
+      // A: a centered dialog; three buttons in a row on desktop, stacked on mobile. No default button.
+      function dialogA() {
+        return `<div class="fixed inset-0 z-40 flex items-center justify-center p-4">
+          <div data-scrim class="absolute inset-0 bg-slate-900/40 anim-fade"></div>
+          <div role="dialog" aria-modal="true" aria-labelledby="dlg-title" aria-describedby="dlg-body" data-dialog class="relative w-full max-w-xl rounded-xl border border-slate-200 bg-white shadow-sm anim-sheet">
+            <div class="p-6 space-y-2">
+              <h2 id="dlg-title" tabindex="-1" class="text-lg font-semibold leading-tight tracking-tight text-slate-900 focus:outline-none">${COPY.heading}</h2>
+              <p id="dlg-body" class="text-sm text-slate-500">${COPY.body}</p>
+            </div>
+            <div class="flex flex-col sm:flex-row sm:justify-end gap-2 px-6 pb-6">
+              <button data-choose="save" class="${btn.outline} h-10 px-4 text-sm">${icon("calendar-check")}${COPY.save}</button>
+              <button data-choose="discard" class="${btn.danger} h-10 px-4 text-sm">${icon("trash-2")}${COPY.discard}</button>
+              <button data-choose="keep" class="${btn.ghost} h-10 px-4 text-sm">${icon("list-plus")}${COPY.keep}</button>
+            </div>
+          </div>
+        </div>`;
+      }
+      // B: an action sheet (Apple's Mail draft pattern). Bottom sheet on mobile, centered panel on desktop.
+      // Each option says what happens.
+      function dialogB() {
+        const opt = (kind, ic, label, hint, tone = "") =>
+          `<button data-choose="${kind}" class="w-full flex items-start gap-3 rounded-lg px-3 py-3 text-left transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${tone}">
+            <span class="mt-0.5 shrink-0 ${kind === "discard" ? "text-red-600" : "text-slate-500"}">${icon(ic)}</span>
+            <span><span class="block text-sm font-medium ${kind === "discard" ? "text-red-700" : "text-slate-900"}">${label}</span><span class="block text-sm text-slate-500">${hint}</span></span>
+          </button>`;
+        return `<div class="fixed inset-0 z-40 flex items-end sm:items-center justify-center sm:p-4">
+          <div data-scrim class="absolute inset-0 bg-slate-900/40 anim-fade"></div>
+          <div role="dialog" aria-modal="true" aria-labelledby="dlg-title" data-dialog class="relative w-full sm:max-w-md rounded-t-xl sm:rounded-xl border border-slate-200 bg-white shadow-sm anim-sheet pb-[env(safe-area-inset-bottom)]">
+            <div class="mx-auto mt-2 h-1 w-10 rounded-full bg-slate-200 sm:hidden"></div>
+            <div class="px-5 pt-4 pb-2">
+              <h2 id="dlg-title" tabindex="-1" class="text-lg font-semibold leading-tight tracking-tight text-slate-900 focus:outline-none">${COPY.heading}</h2>
+            </div>
+            <div class="px-2 pb-2 divide-y divide-slate-100">
+              ${opt("save", "calendar-check", COPY.save, "Keeps today in your history as a visit. No sets, so no chart point.")}
+              ${opt("discard", "trash-2", COPY.discard, "Deletes this empty workout. Nothing is kept.")}
+              ${opt("keep", "list-plus", COPY.keep, "Goes back to the workout so you can add sets.")}
+            </div>
+          </div>
+        </div>`;
+      }
+      // C: no overlay. The choice opens inside the workout card, above the form.
+      function inlinePanel() {
+        return `<div id="empty-choice" role="region" aria-labelledby="dlg-title" class="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3 anim-sheet">
+          <div class="space-y-1">
+            <h3 id="dlg-title" tabindex="-1" class="text-sm font-semibold text-slate-900 focus:outline-none">${COPY.heading}</h3>
+            <p class="text-sm text-slate-500">${COPY.body}</p>
+          </div>
+          <div class="flex flex-col sm:flex-row gap-2">
+            <button data-choose="save" class="${btn.outline} h-10 sm:h-8 px-3 text-sm">${icon("calendar-check")}${COPY.save}</button>
+            <button data-choose="discard" class="${btn.danger} h-10 sm:h-8 px-3 text-sm">${icon("trash-2")}${COPY.discard}</button>
+            <button data-choose="keep" class="${btn.ghost} h-10 sm:h-8 px-3 text-sm">${icon("list-plus")}${COPY.keep}</button>
+          </div>
+        </div>`;
+      }
+
+      // ---------- Render ----------
+      const app = document.getElementById("app");
+      const bar = document.getElementById("bar");
+      function setParam(k, v) {
+        const p = new URLSearchParams(location.search);
+        p.set(k, v);
+        history.replaceState(null, "", `${location.pathname}?${p}`);
+      }
+      function renderFrames() {
+        const src = (w) => `${location.pathname}?variant=${variant}&data=${dataset}&embed=1&w=${w}`;
+        const phone = `<div class="flex flex-col gap-2 shrink-0"><p class="text-xs font-medium text-slate-500">Mobile · 390 px</p>
+          <iframe title="Mobile" src="${src(390)}" class="bg-white rounded-xl border border-slate-300 shadow-sm" style="width:390px;height:844px"></iframe></div>`;
+        if (view === "mobile") { app.innerHTML = `<div class="min-h-screen flex justify-center p-6 pb-28 bg-slate-200">${phone}</div>`; return; }
+        const sc = Math.min(1, (window.innerWidth - 48 - 24 - 392) / 1280);
+        app.innerHTML = `<div class="min-h-screen flex gap-6 items-start p-6 pb-28 bg-slate-200">
+          <div class="flex flex-col gap-2 shrink-0">
+            <p class="text-xs font-medium text-slate-500">Desktop · 1280 px${sc < 1 ? ` (shown at ${Math.round(sc * 100)}%)` : ""}</p>
+            <div style="width:${1280 * sc}px;height:${800 * sc}px" class="overflow-hidden rounded-xl border border-slate-300 shadow-sm bg-white">
+              <iframe title="Desktop" src="${src(1280)}" style="width:1280px;height:800px;transform:scale(${sc});transform-origin:top left"></iframe>
+            </div>
+          </div>${phone}</div>`;
+      }
+      function render() {
+        if (!embedded && view !== "desktop") renderFrames();
+        else {
+          const content = state.page === "current" ? currentPage() : historyPage();
+          const overlay = state.choiceOpen && state.page === "current" ? (variant === "A" ? dialogA() : variant === "B" ? dialogB() : "") : "";
+          app.innerHTML = shell(content) + overlay;
+          bindPage();
+          if (state.choiceOpen) {
+            // Focus the heading, not a button: no choice is pre-selected, so Enter does nothing by accident.
+            const h = app.querySelector("#dlg-title");
+            if (h) h.focus();
+          }
+        }
+        if (!embedded) renderBar();
+        if (window.lucide) lucide.createIcons();
+      }
+      function bindPage() {
+        app.querySelectorAll("[data-nav]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); state.page = a.dataset.nav; state.choiceOpen = false; render(); }));
+        app.querySelector("[data-start]")?.addEventListener("click", startWorkout);
+        app.querySelector("[data-complete]")?.addEventListener("click", () => (variant === "C" && state.choiceOpen ? closeChoice() : completeWorkout()));
+        app.querySelectorAll("[data-choose]").forEach((b) => b.addEventListener("click", () => choose(b.dataset.choose)));
+        app.querySelector("[data-scrim]")?.addEventListener("click", closeChoice); // a tap outside = Keep logging
+        const f = app.querySelector("[data-form]");
+        if (f) {
+          f.addEventListener("submit", addSet);
+          f.querySelector('[name="movement"]').addEventListener("change", (e) => { state.form.movementId = e.target.value; render(); app.querySelector('[name="movement"]').focus(); });
+          ["weight", "reps"].forEach((n) =>
+            f.querySelector(`[name="${n}"]`).addEventListener("input", (e) => {
+              state.form[n] = e.target.value;
+              f.querySelector('button[type="submit"]').disabled = !(state.form.movementId && state.form.weight && state.form.reps);
+            }),
+          );
+        }
+        app.querySelectorAll("[data-select]").forEach((c) => c.addEventListener("change", () => { const id = c.dataset.select; state.selected.has(id) ? state.selected.delete(id) : state.selected.add(id); render(); }));
+        app.querySelector("[data-select-all]")?.addEventListener("change", () => { state.selected = state.selected.size === state.history.length ? new Set() : new Set(state.history.map((w) => w.id)); render(); });
+        app.querySelector("[data-delete]")?.addEventListener("click", deleteSelected);
+      }
+      // Esc = Keep logging. Tab stays inside the dialog (A and B).
+      document.addEventListener("keydown", (e) => {
+        if (state.choiceOpen && e.key === "Escape") { e.preventDefault(); closeChoice(); return; }
+        if (state.choiceOpen && e.key === "Tab" && variant !== "C") {
+          const d = app.querySelector("[data-dialog]");
+          if (!d) return;
+          const items = [...d.querySelectorAll("button")];
+          const i = items.indexOf(document.activeElement);
+          if (e.shiftKey && i <= 0) { e.preventDefault(); items[items.length - 1].focus(); }
+          else if (!e.shiftKey && (i === -1 || i === items.length - 1)) { e.preventDefault(); items[i === -1 ? 0 : 0].focus(); }
+          return;
+        }
+        if (embedded) return;
+        const t = e.target;
+        if (t.closest && t.closest("input, textarea, select, [contenteditable]")) return;
+        if (e.key === "ArrowLeft") cycle(-1);
+        if (e.key === "ArrowRight") cycle(1);
+      });
+
+      // ---------- Prototype bar (not part of the design) ----------
+      function renderBar() {
+        const v = VARIANTS.find((x) => x.key === variant);
+        const seg = (group, opts, cur) =>
+          `<div class="flex rounded-full bg-white/10 p-0.5">${opts.map(([k, label]) => `<button data-${group}="${k}" class="px-2.5 py-1 rounded-full text-xs whitespace-nowrap ${k === cur ? "bg-white text-slate-900" : "text-white/80 hover:text-white"}">${label}</button>`).join("")}</div>`;
+        const stateJson = JSON.stringify({ variant, dataset, page: state.page, choiceOpen: state.choiceOpen, current: state.current, history: state.history.map((w) => ({ id: w.id, date: w.date, sets: w.sets.length, gymVisit: w.sets.length === 0 })) }, null, 2);
+        bar.innerHTML = `
+          ${state.showState && view === "desktop" ? `<pre class="fixed bottom-20 right-4 z-50 max-h-[50vh] w-80 overflow-auto rounded-xl bg-slate-900 p-3 text-[11px] leading-snug text-slate-100 shadow-lg">${stateJson}</pre>` : ""}
+          <div class="fixed bottom-4 inset-x-0 mx-auto w-fit z-50 flex flex-wrap justify-center items-center gap-x-3 gap-y-1 max-w-[calc(100vw-1rem)] rounded-3xl bg-slate-900 text-white pl-2 pr-3 py-1.5 shadow-lg ring-1 ring-black/10 text-sm">
+            <span class="text-[10px] font-semibold uppercase tracking-wider text-amber-300 px-2">Prototype</span>
+            <button data-prev aria-label="Previous variant" class="h-7 w-7 inline-flex items-center justify-center rounded-full hover:bg-white/10">${icon("chevron-left")}</button>
+            <span class="min-w-56 text-center"><span class="font-semibold">${v.key}</span> · ${v.name}</span>
+            <button data-next aria-label="Next variant" class="h-7 w-7 inline-flex items-center justify-center rounded-full hover:bg-white/10">${icon("chevron-right")}</button>
+            ${seg("view", [["desktop", "Desktop"], ["mobile", "Mobile"], ["both", "Both"]], view)}
+            ${seg("data", DATASETS, dataset)}
+            ${!state.choiceOpen && state.current && state.current.sets.length === 0 && state.page === "current" ? `<button data-reopen class="px-2.5 py-1 rounded-full text-xs bg-amber-300 text-slate-900 font-medium">Open the choice</button>` : ""}
+            ${view === "desktop" ? `<button data-reset class="px-2.5 py-1 rounded-full text-xs text-white/80 hover:text-white bg-white/10">Reset</button>
+            <button data-state class="px-2.5 py-1 rounded-full text-xs ${state.showState ? "bg-white text-slate-900" : "text-white/80 hover:text-white bg-white/10"}">State</button>` : ""}
+          </div>`;
+        bar.querySelector("[data-prev]").onclick = () => cycle(-1);
+        bar.querySelector("[data-next]").onclick = () => cycle(1);
+        bar.querySelectorAll("[data-view]").forEach((b) => (b.onclick = () => { view = b.dataset.view; setParam("view", view); render(); }));
+        bar.querySelectorAll("[data-data]").forEach((b) => (b.onclick = () => { dataset = b.dataset.data; setParam("data", dataset); reset(); }));
+        const ro = bar.querySelector("[data-reopen]");
+        if (ro) ro.onclick = () => completeWorkout();
+        const r = bar.querySelector("[data-reset]");
+        if (r) r.onclick = reset;
+        const st = bar.querySelector("[data-state]");
+        if (st) st.onclick = () => { state.showState = !state.showState; render(); };
+      }
+      function reset() {
+        Object.assign(state, initialData(), { page: "current", choiceOpen: dataset === "empty", notice: null, selected: new Set(), form: { movementId: "", weight: "", reps: "" } });
+        render();
+      }
+      function cycle(dir) {
+        const i = VARIANTS.findIndex((x) => x.key === variant);
+        variant = VARIANTS[(i + dir + VARIANTS.length) % VARIANTS.length].key;
+        setParam("variant", variant);
+        // The variants differ only in the choice, so switching always shows it on an empty workout.
+        const showable = state.page === "current" && state.current && state.current.sets.length === 0;
+        if (!showable) {
+          dataset = "empty";
+          setParam("data", dataset);
+          Object.assign(state, initialData(), { page: "current", notice: null, selected: new Set(), form: { movementId: "", weight: "", reps: "" } });
+        }
+        lastFocus = null;
+        state.choiceOpen = true;
+        render();
+      }
+      render();
+    </script>
+  </body>
+</html>
