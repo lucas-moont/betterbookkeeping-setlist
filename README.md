@@ -115,19 +115,20 @@ Postgres listens on host port `55432` instead of `5432` so it doesn't conflict w
 
 ### Scripts
 
-| Script                     | What it does                                            |
-| -------------------------- | ------------------------------------------------------- |
-| `bun run dev`              | Start Postgres and the app in Docker with watch mode    |
-| `bun run dev:down`         | Stop the Docker services                                |
-| `bun run db:migrate`       | Create and apply a Prisma migration                     |
-| `bun run db:reset`         | Drop the database and re-apply all migrations           |
-| `bun run db:prepare`       | Apply pending migrations and hash legacy passwords      |
-| `bun run typecheck`        | Type-check the project                                  |
-| `bun run build`            | Build for production                                    |
-| `bun run test`             | Run the Playwright e2e tests                            |
-| `bun run test:ui`          | Run the e2e tests in Playwright's UI mode               |
-| `bun run test:integration` | Run the Vitest integration tests against `setlist_test` |
-| `bun run format`           | Format the code with Prettier                           |
+| Script                       | What it does                                                                               |
+| ---------------------------- | ------------------------------------------------------------------------------------------ |
+| `bun run dev`                | Start Postgres and the app in Docker with watch mode                                       |
+| `bun run dev:down`           | Stop the Docker services                                                                   |
+| `bun run db:migrate`         | Create and apply a Prisma migration                                                        |
+| `bun run db:reset`           | Drop the database and re-apply all migrations                                              |
+| `bun run db:prepare`         | Apply pending migrations and hash legacy passwords                                         |
+| `bun run db:explain-indexes` | EXPLAIN the main queries with and without the foreign-key indexes, on a throwaway database |
+| `bun run typecheck`          | Type-check the project                                                                     |
+| `bun run build`              | Build for production                                                                       |
+| `bun run test`               | Run the Playwright e2e tests                                                               |
+| `bun run test:ui`            | Run the e2e tests in Playwright's UI mode                                                  |
+| `bun run test:integration`   | Run the Vitest integration tests against `setlist_test`                                    |
+| `bun run format`             | Format the code with Prettier                                                              |
 
 ## Tech stack
 

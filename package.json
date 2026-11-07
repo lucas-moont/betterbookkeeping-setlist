@@ -8,6 +8,7 @@
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
     "db:prepare": "prisma migrate deploy && bun scripts/hash-legacy-passwords.ts",
+    "db:explain-indexes": "bun scripts/explain-foreign-key-indexes.ts",
     "build": "vite build",
     "serve": "vite preview",
     "format": "prettier --write .",
