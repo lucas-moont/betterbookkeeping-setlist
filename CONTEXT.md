@@ -114,5 +114,5 @@ _Avoid_: Weight history graph
 ### Account
 
 **Session**:
-One signed-in browser of a user. It ends 14 to 15 days after the last visit (it is renewed at most once a day), or when the user signs out of that browser. Other browsers stay signed in. Only an account term: a training session is a Workout.
+One signed-in browser of a user. It ends 14 to 15 days after the last visit (it is renewed at most once a day), 90 days after sign-in however often it is used, or when the user signs out of that browser. Other browsers stay signed in. Only an account term: a training session is a Workout.
 _Avoid_: Login

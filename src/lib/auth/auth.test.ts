@@ -244,6 +244,82 @@ describe("currentUser", () => {
   });
 });
 
+describe("the 90-day cap", () => {
+  const minute = 60 * 1000;
+
+  // Sliding alone would keep a stolen cookie alive forever as long as someone used it.
+  test("a session used every day still ends 90 days after sign-in, and is deleted", async () => {
+    const db = await getServerSidePrismaClient();
+    setDay(0);
+    const cookies = memoryCookies();
+    expectOk(await auth.register(db, cookies, newAccount()));
+    for (let at = 1; at <= 89; at++) {
+      setDay(at);
+      expect(await auth.currentUser(db, cookies)).not.toBeNull();
+    }
+
+    setDay(90 + minute / day);
+    expect(await auth.currentUser(db, cookies)).toBeNull();
+
+    // Back on a day the session was valid: only a deleted row comes back null.
+    setDay(89);
+    expect(await auth.currentUser(db, cookies)).toBeNull();
+  });
+
+  test("a renewal on day 80 lasts the 10 days left, in the row and in the cookie", async () => {
+    const db = await getServerSidePrismaClient();
+    setDay(0);
+    const cookies = memoryCookies();
+    expectOk(await auth.register(db, cookies, newAccount()));
+    for (const at of [14, 28, 42, 56, 70]) {
+      setDay(at);
+      expect(await auth.currentUser(db, cookies)).not.toBeNull();
+    }
+
+    setDay(80);
+    expect(await auth.currentUser(db, cookies)).not.toBeNull();
+
+    expect(cookies.sets.at(-1)).toEqual({ token: cookies.get(), maxAgeSeconds: 10 * 24 * 60 * 60 });
+    setDay(89.99);
+    expect(await auth.currentUser(db, cookies)).not.toBeNull();
+    setDay(90);
+    expect(await auth.currentUser(db, cookies)).toBeNull();
+  });
+
+  // Every read in the last two weeks would otherwise renew to the same day 90: a write per request.
+  test("once the expiry has reached day 90, reading the session writes nothing more", async () => {
+    const db = await getServerSidePrismaClient();
+    setDay(0);
+    const cookies = memoryCookies();
+    expectOk(await auth.register(db, cookies, newAccount()));
+    for (const at of [14, 28, 42, 56, 70, 80]) {
+      setDay(at);
+      await auth.currentUser(db, cookies);
+    }
+    const setsAfterDay80 = cookies.sets.length;
+
+    for (const at of [81, 85, 89]) {
+      setDay(at);
+      expect(await auth.currentUser(db, cookies)).not.toBeNull();
+    }
+
+    expect(cookies.sets).toHaveLength(setsAfterDay80);
+  });
+
+  // Sessions renewed before the cap existed can have an expiresAt past day 90. The test makes one
+  // by moving expiresAt directly, since the module itself never writes such a row.
+  test("ends a session 90 days after sign-in even when its expiresAt is later", async () => {
+    const db = await getServerSidePrismaClient();
+    setDay(0);
+    const cookies = memoryCookies();
+    const { user } = expectOk(await auth.register(db, cookies, newAccount()));
+    await db.session.updateMany({ where: { userId: user.id }, data: { expiresAt: new Date(start + 100 * day) } });
+
+    setDay(90 + minute / day);
+    expect(await auth.currentUser(db, cookies)).toBeNull();
+  });
+});
+
 describe("signOut", () => {
   test("ends the session and deletes the cookie", async () => {
     const db = await getServerSidePrismaClient();

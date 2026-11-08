@@ -27,6 +27,9 @@ const sessionLifetimeSeconds = 15 * daySeconds;
 // Renewing only when less than this is left means at most one renewal a day, so reading the
 // session doesn't turn into a write on every request, and no "last renewed" column is needed.
 const renewWhenLeftMs = 14 * daySeconds * 1000;
+// However often it is used, a Session ends this long after sign-in (its createdAt): sliding alone
+// would keep a stolen cookie alive forever as long as someone kept using it.
+const sessionMaxAgeMs = 90 * daySeconds * 1000;
 
 // Only the hash is stored, so a copy of the Session table can't be used to sign in. The token is
 // 32 random bytes, so a fast unsalted hash is enough: there's nothing to guess.
@@ -34,14 +37,25 @@ function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
+/** When a Session signed in at `createdAt` would expire if extended now: 15 days out, or day 90 if sooner. */
+function extendedExpiry(createdAt: Date, now: number): Date {
+  return new Date(Math.min(now + sessionLifetimeSeconds * 1000, createdAt.getTime() + sessionMaxAgeMs));
+}
+
 /**
- * Gives a Session the full lifetime from now: `save` writes the new expiresAt, then the cookie gets
- * the same lifetime as its max age. Starting and renewing both go through here, so the row and the
- * cookie can't expire on different days.
+ * Gives a Session the lifetime it has left from now: `save` writes the new expiresAt, then the
+ * cookie gets the same time as its max age. Starting and renewing both go through here, so the row
+ * and the cookie can't expire on different days.
  */
-async function extendSession(cookies: SessionCookies, token: string, save: (expiresAt: Date) => Promise<unknown>) {
-  await save(new Date(Date.now() + sessionLifetimeSeconds * 1000));
-  cookies.set(token, sessionLifetimeSeconds);
+async function extendSession(
+  cookies: SessionCookies,
+  token: string,
+  expiresAt: Date,
+  now: number,
+  save: (expiresAt: Date) => Promise<unknown>,
+) {
+  await save(expiresAt);
+  cookies.set(token, Math.floor((expiresAt.getTime() - now) / 1000));
 }
 
 /**
@@ -53,8 +67,12 @@ async function startSession(db: DbClient, cookies: SessionCookies, userId: strin
   if (previous) await db.session.deleteMany({ where: { tokenHash: hashToken(previous) } });
 
   const token = randomBytes(32).toString("base64url");
-  await extendSession(cookies, token, (expiresAt) =>
-    db.session.create({ data: { tokenHash: hashToken(token), userId, expiresAt } }),
+  // createdAt and the first expiresAt come from one reading of the clock the module compares
+  // against, so the 90-day cap starts exactly where the first 15 days do.
+  const now = Date.now();
+  const createdAt = new Date(now);
+  await extendSession(cookies, token, extendedExpiry(createdAt, now), now, (expiresAt) =>
+    db.session.create({ data: { tokenHash: hashToken(token), userId, expiresAt, createdAt } }),
   );
 }
 
@@ -133,7 +151,8 @@ export const signOut = createServerOnlyFn(
  * The user whose Session the cookie holds, or null when there is none or it expired. An expired
  * Session is deleted here. A Session with less than 14 of its 15 days left slides to 15 days from
  * now, and the cookie is written again with the new max age, or the browser would drop it on the
- * original day 15 while the Session was still valid.
+ * original day 15 while the Session was still valid. Nothing slides past 90 days after sign-in:
+ * then the Session expires however recently it was used.
  */
 export const currentUser = createServerOnlyFn(
   async (db: DbClient, cookies: SessionCookies): Promise<SessionUser | null> => {
@@ -142,19 +161,25 @@ export const currentUser = createServerOnlyFn(
 
     const session = await db.session.findUnique({
       where: { tokenHash: hashToken(token) },
-      select: { id: true, expiresAt: true, user: { select: sessionUserSelect } },
+      select: { id: true, expiresAt: true, createdAt: true, user: { select: sessionUserSelect } },
     });
     if (!session) return null;
 
-    const msLeft = session.expiresAt.getTime() - Date.now();
+    const now = Date.now();
+    // The cap counts too, for a row renewed before it existed, whose expiresAt can be later.
+    const endsAt = Math.min(session.expiresAt.getTime(), session.createdAt.getTime() + sessionMaxAgeMs);
+    const msLeft = endsAt - now;
     // deleteMany and updateMany, not delete and update: a concurrent request may have removed the
     // row already (another read of this expired Session, or a sign-out), and that isn't an error.
     if (msLeft <= 0) {
       await db.session.deleteMany({ where: { id: session.id } });
       return null;
     }
-    if (msLeft < renewWhenLeftMs) {
-      await extendSession(cookies, token, (expiresAt) =>
+    // Near the cap a renewal can't move the expiry anymore, and writing the same one again on every
+    // read would make each request a write.
+    const renewed = extendedExpiry(session.createdAt, now);
+    if (msLeft < renewWhenLeftMs && renewed.getTime() > session.expiresAt.getTime()) {
+      await extendSession(cookies, token, renewed, now, (expiresAt) =>
         db.session.updateMany({ where: { id: session.id }, data: { expiresAt } }),
       );
     }
