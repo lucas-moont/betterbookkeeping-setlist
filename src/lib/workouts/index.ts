@@ -134,6 +134,9 @@ const currentWorkoutWhere = (userId: string) => ({ userId, completedAt: null });
 // A Set of the user's Current Workout: the only Sets removeSet and setCompleted may touch.
 const currentWorkoutSetWhere = (userId: string, setId: string) => ({ id: setId, workout: currentWorkoutWhere(userId) });
 
+// A Completed Set (ADR 0011); a Planned Set has no completedAt.
+const completedSetWhere = { completedAt: { not: null } };
+
 /**
  * Whether the assistance in an Added Weight is more than the body weight, which would make Load
  * negative (ADR 0003). The Set_load_not_negative CHECK refuses it too; checking first turns it into
@@ -310,16 +313,73 @@ export const removeSet = createServerOnlyFn(
   },
 );
 
-/** Completes the user's Current Workout, which moves it into the history. */
-export const complete = createServerOnlyFn(
-  async (db: DbClient, userId: string): Promise<Result<object, "no-current-workout">> => {
-    const workoutId = await findCurrentWorkoutId(db, userId);
-    if (!workoutId) return { ok: false, reason: "no-current-workout" };
+/** What to do with a Current Workout that has no Completed Sets: keep it as a Gym Visit, or delete it. */
+export const whenEmptyChoices = ["save", "discard"] as const;
+export type WhenEmpty = (typeof whenEmptyChoices)[number];
 
-    await db.workout.update({ where: { id: workoutId }, data: { completedAt: new Date() } });
-    return { ok: true };
+/**
+ * How the server function runs complete: in one REPEATABLE READ transaction, so the read that finds
+ * the workout empty and discard's deletes work from one snapshot. A Set completed or added from
+ * another tab after that read makes Postgres refuse the transaction (a serialization or foreign key
+ * error, so a generic toast), and nothing is deleted.
+ */
+export const completeTransaction = { isolationLevel: "RepeatableRead" } as const;
+
+/**
+ * Completes the user's Current Workout, which moves it into the history. One with no Completed Sets
+ * (Planned Sets don't count) is never completed or deleted without the user's choice: with no
+ * whenEmpty it returns empty-workout, so the page can ask. "save" keeps it as a Gym Visit, Planned
+ * Sets and all. "discard" deletes it with its Sets, and refuses with workout-not-empty once it has
+ * a Completed Set: the user chose to discard a workout with nothing done, not this one.
+ */
+export const complete = createServerOnlyFn(
+  async (
+    db: DbClient,
+    userId: string,
+    { whenEmpty }: { whenEmpty?: WhenEmpty } = {},
+  ): Promise<Result<object, "no-current-workout" | "empty-workout" | "workout-not-empty">> => {
+    const workout = await db.workout.findFirst({
+      where: currentWorkoutWhere(userId),
+      select: { id: true, sets: { where: completedSetWhere, take: 1, select: { id: true } } },
+    });
+    if (!workout) return { ok: false, reason: "no-current-workout" };
+    const empty = workout.sets.length === 0;
+
+    if (whenEmpty === "discard") {
+      return empty ? discard(db, userId, workout.id) : { ok: false, reason: "workout-not-empty" };
+    }
+    if (whenEmpty === undefined && empty) return { ok: false, reason: "empty-workout" };
+
+    // With no choice, the update requires a Completed Set itself, so on a plain client the check and
+    // the write are one statement. Inside completeTransaction they share the snapshot instead: a Set
+    // un-completed from another tab after the read isn't seen, and the workout completes as it was
+    // when the user clicked.
+    const { count } = await db.workout.updateMany({
+      where: {
+        id: workout.id,
+        ...currentWorkoutWhere(userId),
+        ...(whenEmpty === undefined && { sets: { some: completedSetWhere } }),
+      },
+      data: { completedAt: new Date() },
+    });
+    if (count > 0) return { ok: true };
+    return { ok: false, reason: whenEmpty === undefined ? "empty-workout" : "no-current-workout" };
   },
 );
+
+/**
+ * Deletes the user's Current Workout and its Sets, after complete found it has no Completed Set.
+ * The Set FK is RESTRICT, so the Sets go first. Two statements: only the caller's transaction
+ * (completeTransaction) makes them all or nothing and keeps them on the snapshot that found the
+ * workout empty. Without it, a Set added between them would leave the Planned Sets deleted and the
+ * workout standing.
+ */
+async function discard(db: DbClient, userId: string, workoutId: string): Promise<Result<object, never>> {
+  const workout = { id: workoutId, ...currentWorkoutWhere(userId) };
+  await db.set.deleteMany({ where: { workout } });
+  await db.workout.deleteMany({ where: workout });
+  return { ok: true };
+}
 
 /** The user's Completed Workouts with their Sets, most recently completed first. */
 export const history = createServerOnlyFn(async (db: DbClient, userId: string): Promise<CompletedWorkout[]> => {

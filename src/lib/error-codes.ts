@@ -15,6 +15,9 @@ export const errorMessages = {
   // auth
   "invalid-credentials": "Invalid email or password",
   "email-taken": "An account with this email already exists",
+  // workouts
+  "empty-workout": "This workout has no completed sets",
+  "workout-not-empty": "This workout has completed sets, so it can't be discarded",
 } as const;
 
 export type ErrorCode = keyof typeof errorMessages;

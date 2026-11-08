@@ -62,7 +62,7 @@ function CurrentWorkoutPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-semibold text-slate-900">Current Workout</h1>
-        <Button variant="outline" onClick={() => completeWorkoutMutation.mutate()} className="shrink-0">
+        <Button variant="outline" onClick={() => completeWorkoutMutation.mutate(undefined)} className="shrink-0">
           <Check className="w-4 h-4" />
           {completeWorkoutMutation.isPending ? (
             "Completing..."

@@ -22,11 +22,22 @@ export const getCurrentWorkoutServerFn = createServerFn()
     return workouts.get(await getServerSidePrismaClient(), context.user.id);
   });
 
+// The user's choice for a workout with no Completed Sets, sent once the page has asked.
+const completeWorkoutSchema = z.object({ whenEmpty: z.enum(workouts.whenEmptyChoices).optional() });
+
+// One REPEATABLE READ transaction: discarding deletes the Sets, then the Workout, from the snapshot
+// that found the workout empty, and never stops halfway (completeTransaction).
 export const completeWorkoutServerFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .handler(async ({ context }) => {
-    return toServerResult(await workouts.complete(await getServerSidePrismaClient(), context.user.id));
-  });
+  .inputValidator(completeWorkoutSchema)
+  .handler(
+    async ({ context, data }: { context: { user: { id: string } }; data: { whenEmpty?: workouts.WhenEmpty } }) => {
+      const db = await getServerSidePrismaClient();
+      return toServerResult(
+        await db.$transaction((tx) => workouts.complete(tx, context.user.id, data), workouts.completeTransaction),
+      );
+    },
+  );
 
 // One transaction: the first Body Weight Entry a body-weight Set records is saved with the Sets, or
 // neither is. The user's today, for that entry, comes from the tz cookie (ADR 0003, ADR 0004).

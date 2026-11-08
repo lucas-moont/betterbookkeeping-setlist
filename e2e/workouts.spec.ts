@@ -59,6 +59,9 @@ test.describe("Workouts", () => {
     });
 
     test("should start a single workout on a double click", async ({ page }) => {
+      // A Set, so Complete Workout completes it without asking about an empty workout.
+      const movement = `Front Squat ${uniqueToken()}`;
+      await createMovement(page, movement);
       await openPage(page, "/current-workout");
       // Server-function calls that change data are POSTs; on this page, only the two starts are.
       let startsAnswered = 0;
@@ -76,6 +79,7 @@ test.describe("Workouts", () => {
       await expect.poll(() => startsAnswered).toBe(2);
       await page.waitForTimeout(1000);
       expect(await page.getByRole("alert").count()).toBe(0);
+      await addSet(page, { movement, weight: 135, reps: 5 });
       await completeWorkout(page);
 
       // A second workout from the second click would now be the Current Workout.
