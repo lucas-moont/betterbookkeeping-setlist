@@ -15,6 +15,23 @@ describe("signInInputSchema", () => {
   });
 });
 
+describe("the email", () => {
+  /** A valid address exactly `length` characters long. */
+  const emailOfLength = (length: number) => `${"a".repeat(length - "@example.com".length)}@example.com`;
+
+  // An emailKey longer than a btree index row allows would fail the insert after argon2 has run.
+  test("takes up to 254 characters, the longest address SMTP allows", () => {
+    for (const schema of [signInInputSchema, createAccountInputSchema]) {
+      expect(schema.safeParse({ ...account, email: emailOfLength(254) }).success).toBe(true);
+      expect(schema.safeParse({ ...account, email: emailOfLength(255) }).success).toBe(false);
+    }
+  });
+
+  test("counts the length without the whitespace around it", () => {
+    expect(signInInputSchema.safeParse({ ...account, email: ` ${emailOfLength(254)} ` }).success).toBe(true);
+  });
+});
+
 describe("createAccountInputSchema", () => {
   test("takes a password of 6 to 256 characters", () => {
     for (const [length, valid] of [

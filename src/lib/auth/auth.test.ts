@@ -6,6 +6,8 @@ import { memoryCookies } from "@/test/memory-cookies";
 import * as auth from "./index";
 
 const password = "correct horse";
+// Every sign-in here uses its own email, so one IP for all of them never reaches the attempt limit.
+const ip = "203.0.113.1";
 const day = 24 * 60 * 60 * 1000;
 const fifteenDaysInSeconds = 15 * 24 * 60 * 60;
 const start = new Date("2026-11-01T12:00:00Z").getTime();
@@ -80,7 +82,7 @@ describe("email addresses", () => {
       await auth.register(db, memoryCookies(), { email: ` ${local}@example.com `, name: "Lucas", password }),
     ).toEqual({ ok: false, reason: "email-taken" });
     for (const email of [`${local}@example.com`, ` ${local.toUpperCase()}@EXAMPLE.COM\t`]) {
-      expect(expectOk(await auth.signIn(db, memoryCookies(), { email, password })).user.id).toBe(user.id);
+      expect(expectOk(await auth.signIn(db, memoryCookies(), { email, password, ip })).user.id).toBe(user.id);
     }
   });
 });
@@ -92,7 +94,7 @@ describe("signIn", () => {
     const { user } = expectOk(await auth.register(db, memoryCookies(), account));
     const cookies = memoryCookies();
 
-    const signedIn = expectOk(await auth.signIn(db, cookies, { email: account.email, password }));
+    const signedIn = expectOk(await auth.signIn(db, cookies, { email: account.email, password, ip }));
 
     expect(signedIn.user).toStrictEqual({ id: user.id, email: account.email, name: "Lucas" });
     expect(cookies.sets).toHaveLength(1);
@@ -106,11 +108,11 @@ describe("signIn", () => {
     expectOk(await auth.register(db, memoryCookies(), account));
     const cookies = memoryCookies();
 
-    expect(await auth.signIn(db, cookies, { email: account.email, password: "battery staple" })).toEqual({
+    expect(await auth.signIn(db, cookies, { email: account.email, password: "battery staple", ip })).toEqual({
       ok: false,
       reason: "invalid-credentials",
     });
-    expect(await auth.signIn(db, cookies, { email: newAccount().email, password })).toEqual({
+    expect(await auth.signIn(db, cookies, { email: newAccount().email, password, ip })).toEqual({
       ok: false,
       reason: "invalid-credentials",
     });
@@ -124,8 +126,8 @@ describe("signIn", () => {
     const laptop = memoryCookies();
     const phone = memoryCookies();
 
-    expectOk(await auth.signIn(db, laptop, { email: account.email, password }));
-    expectOk(await auth.signIn(db, phone, { email: account.email, password }));
+    expectOk(await auth.signIn(db, laptop, { email: account.email, password, ip }));
+    expectOk(await auth.signIn(db, phone, { email: account.email, password, ip }));
 
     expect(laptop.get()).not.toBe(phone.get());
     expect((await auth.currentUser(db, laptop))?.id).toBe(user.id);
@@ -139,10 +141,10 @@ describe("signIn", () => {
     const account = newAccount();
     const { user } = expectOk(await auth.register(db, memoryCookies(), account));
     const cookies = memoryCookies();
-    expectOk(await auth.signIn(db, cookies, { email: account.email, password }));
+    expectOk(await auth.signIn(db, cookies, { email: account.email, password, ip }));
     const copy = memoryCookies(cookies.get());
 
-    expectOk(await auth.signIn(db, cookies, { email: account.email, password }));
+    expectOk(await auth.signIn(db, cookies, { email: account.email, password, ip }));
 
     expect(await auth.currentUser(db, copy)).toBeNull();
     expect((await auth.currentUser(db, cookies))?.id).toBe(user.id);
@@ -158,7 +160,7 @@ describe("signIn", () => {
     expectOk(await auth.register(db, old, account));
 
     setDay(16);
-    expectOk(await auth.signIn(db, memoryCookies(), { email: account.email, password }));
+    expectOk(await auth.signIn(db, memoryCookies(), { email: account.email, password, ip }));
 
     setDay(1);
     expect(await auth.currentUser(db, old)).toBeNull();
@@ -350,7 +352,7 @@ describe("signOut", () => {
     const laptop = memoryCookies();
     const { user } = expectOk(await auth.register(db, laptop, account));
     const phone = memoryCookies();
-    expectOk(await auth.signIn(db, phone, { email: account.email, password }));
+    expectOk(await auth.signIn(db, phone, { email: account.email, password, ip }));
 
     expectOk(await auth.signOut(db, laptop));
 

@@ -15,6 +15,8 @@ export const errorMessages = {
   // auth
   "invalid-credentials": "Invalid email or password",
   "email-taken": "An account with this email already exists",
+  "too-many-attempts": ({ retryAfterMinutes: minutes }: { retryAfterMinutes: number }) =>
+    `Too many sign-in attempts. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`,
   // workouts
   "empty-workout": "This workout has no completed sets",
   "workout-not-empty": "This workout has completed sets, so it can't be discarded",
@@ -22,18 +24,36 @@ export const errorMessages = {
 
 export type ErrorCode = keyof typeof errorMessages;
 
-/** What a domain module returns from an operation that can fail: the data, or the reason it didn't happen. */
-export type Result<T extends object, E extends ErrorCode> = ({ ok: true } & T) | { ok: false; reason: E };
+// A code whose message is a function carries that function's argument as its details, so the two
+// are one definition and can't drift. A code with fixed text carries nothing.
+type DetailsOf<E extends ErrorCode> = (typeof errorMessages)[E] extends (details: infer D) => string ? D : unknown;
 
-/** What a server function sends to the browser. `code` is stable, so the client can branch on it. */
+/** A module's failure for one code (the conditional distributes over a union of codes), with its details. */
+export type Failure<E extends ErrorCode> = E extends ErrorCode ? { ok: false; reason: E } & DetailsOf<E> : never;
+
+/** What a domain module returns from an operation that can fail: the data, or the reason it didn't happen. */
+export type Result<T extends object, E extends ErrorCode> = ({ ok: true } & T) | Failure<E>;
+
+/**
+ * What a server function sends to the browser. `code` is stable, so the client can branch on it.
+ * A failure's details only go into `error`, never beside it.
+ */
 export type ServerResult<T extends object, E extends ErrorCode> =
   | ({ success: true } & T)
   | { success: false; code: E; error: string };
 
+function messageOf(failure: Failure<ErrorCode>): string {
+  const message = errorMessages[failure.reason];
+  // TypeScript can't tie a code's message to that same code's failure, but DetailsOf makes the
+  // failure carry exactly what the message function takes.
+  return typeof message === "function" ? (message as (details: Failure<ErrorCode>) => string)(failure) : message;
+}
+
 /** Translates a module Result into the `{ success, ... }` shape every server function returns. */
 export function toServerResult<T extends object, E extends ErrorCode>(result: Result<T, E>): ServerResult<T, E> {
   if (!result.ok) {
-    return { success: false, code: result.reason, error: errorMessages[result.reason] };
+    // Failure<E> is a conditional type, so TypeScript only sees its reason as some ErrorCode.
+    return { success: false, code: result.reason as E, error: messageOf(result) };
   }
   const { ok: _ok, ...data } = result;
   return { success: true, ...(data as T) };

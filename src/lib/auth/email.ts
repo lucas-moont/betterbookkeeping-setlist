@@ -8,8 +8,10 @@ import { z } from "zod";
 /**
  * An email address as the user types it, trimmed before the format check, which would refuse the
  * whitespace a paste leaves around an address. Case is left as typed: normalizeEmail handles it.
+ * At most 254 characters, the longest address SMTP allows: a longer emailKey could exceed what one
+ * btree index row holds, and that insert would fail only after argon2 had run.
  */
-export const emailSchema = z.string().trim().pipe(z.email());
+export const emailSchema = z.string().trim().max(254).pipe(z.email());
 
 /** An email address as it is stored and looked up: trimmed and in lower case. */
 export function normalizeEmail(email: string): string {

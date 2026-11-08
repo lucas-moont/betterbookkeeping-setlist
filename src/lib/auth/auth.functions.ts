@@ -4,7 +4,7 @@ import { getServerSidePrismaClient } from "@/lib/db.server";
 import { toServerResult } from "@/lib/error-codes";
 import * as auth from "./index";
 import { createAccountInputSchema, signInInputSchema } from "./inputs";
-import { requestSessionCookies } from "./session.server";
+import { requestClientIp, requestSessionCookies } from "./session.server";
 
 // Thin adapters over the auth module (ADR 0010): input validation, the module call with the
 // request's session cookie, and toServerResult for the error codes. What they return reaches the
@@ -20,7 +20,8 @@ export const getUserServerFn = createServerFn().handler(() => readCurrentUser())
 export const signInServerFn = createServerFn({ method: "POST" })
   .inputValidator(signInInputSchema)
   .handler(async ({ data }) => {
-    return toServerResult(await auth.signIn(await getServerSidePrismaClient(), requestSessionCookies(), data));
+    const db = await getServerSidePrismaClient();
+    return toServerResult(await auth.signIn(db, requestSessionCookies(), { ...data, ip: requestClientIp() }));
   });
 
 export const createAccountServerFn = createServerFn({ method: "POST" })
