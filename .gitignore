@@ -27,3 +27,7 @@ generated/
 # Playwright
 playwright-report/
 test-results/
+
+# Working files of local design and browser tools
+.gstack/
+.impeccable/critique/
