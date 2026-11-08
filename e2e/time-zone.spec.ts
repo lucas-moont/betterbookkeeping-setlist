@@ -1,19 +1,14 @@
 import { test, expect, type Page } from "./fixtures";
-import { createMovement, logCompletedWorkout, openPage, startWorkout, uniqueToken } from "./helpers";
+import { createMovement, displayDate, logCompletedWorkout, openPage, startWorkout, uniqueToken } from "./helpers";
 
 // UTC+14 and UTC-12: 26 hours apart, so the two are never on the same date, whatever the clock says.
 // That makes these tests independent of the time they run at.
 const ahead = "Pacific/Kiritimati";
 const behind = "Etc/GMT+12";
 
-// Written out here rather than imported from src/lib/format.ts, so the test doesn't check the code
-// against itself.
+/** Today in that zone, as the screens write it. */
 function today(timeZone: string, style: "short" | "long") {
-  const options: Intl.DateTimeFormatOptions =
-    style === "long"
-      ? { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone }
-      : { month: "short", day: "numeric", year: "numeric", timeZone };
-  return new Intl.DateTimeFormat("en-US", options).format(new Date());
+  return displayDate(new Date(), timeZone, style);
 }
 
 // Today as a date field holds it, "YYYY-MM-DD". en-CA writes dates in that order.
@@ -66,7 +61,7 @@ for (const timeZone of [ahead, behind]) {
 
       const response = await openPage(page, "/workout-history");
 
-      await expect(page.getByRole("cell", { name: today(timeZone, "short") })).toBeVisible();
+      await expect(page.getByRole("cell", { name: today(timeZone, "short"), exact: true })).toBeVisible();
       expect(await response?.text()).toContain(today(timeZone, "short"));
       expect(hydrationErrors).toEqual([]);
     });

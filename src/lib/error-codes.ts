@@ -11,6 +11,7 @@ export const errorMessages = {
   "body-weight-required": "Enter your body weight above 0",
   "added-weight-not-allowed": "Only body-weight movements take an added weight",
   "assistance-exceeds-body-weight": "Assistance can't be more than your body weight",
+  "invalid-time-zone": "Your device's time zone isn't supported",
 } as const;
 
 export type ErrorCode = keyof typeof errorMessages;

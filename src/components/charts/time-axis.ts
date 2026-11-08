@@ -1,6 +1,7 @@
+import { formatWeightAmount } from "@/lib/format";
 import { isoDateToUtc, utcToIsoDate } from "@/lib/iso-date";
 
-// The axes of every time chart in the app (the Body Weight Chart now, the Progression Chart next), so
+// The axes of every time chart in the app (the Body Weight Chart and the Progression Chart), so
 // both read time the same way. Pure: dates come in as "YYYY-MM-DD" and become UTC-midnight timestamps,
 // which keeps every day exactly one day wide and no time zone can move a point (ADR 0004).
 
@@ -64,18 +65,45 @@ export function tickShowsYear(ticks: readonly number[], index: number): boolean 
   return new Date(ticks[index]).getUTCFullYear() !== new Date(ticks[index - 1]).getUTCFullYear();
 }
 
+/** The most intervals a Y axis is cut into: seven ticks at most, whatever the range. */
+const maxIntervals = 6;
+
+/** Round steps in increasing order: 1, 2, 5, then 10, 25, 50 and their powers of ten (100, 250, 500...). */
+function* roundSteps(): Generator<number> {
+  yield* [1, 2, 5];
+  for (let magnitude = 10; ; magnitude *= 10) yield* [magnitude, 2.5 * magnitude, 5 * magnitude];
+}
 /**
- * A Y range around the values with a round step: at least one unit of room above and below, widened to
- * a multiple of the step, so the line never touches the top or bottom edge.
+ * A Y range around the values with a round step: room above and below (a tenth of the range, at least
+ * one unit), widened to a multiple of the step, so the line never touches the top or bottom edge. The
+ * step grows with the range, so a Total Volume in the thousands still gets a handful of ticks, and
+ * values that can't be negative never get an axis below zero.
  */
 export function valueDomain(values: number[]): { domain: [number, number]; ticks: number[] } {
-  const low = Math.floor(Math.min(...values) - 1);
-  const high = Math.ceil(Math.max(...values) + 1);
-  const span = high - low;
-  const step = span <= 6 ? 1 : span <= 12 ? 2 : span <= 30 ? 5 : span <= 60 ? 10 : span <= 150 ? 25 : 50;
-  const start = Math.floor(low / step) * step;
-  const end = Math.ceil(high / step) * step;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const room = Math.max(1, (max - min) / 10);
+  const low = min >= 0 ? Math.max(0, Math.floor(min - room)) : Math.floor(min - room);
+  const high = Math.ceil(max + room);
+  // The smallest round step whose rounded-out range still fits in maxIntervals.
+  let step = 1;
+  let start = low;
+  let end = high;
+  for (step of roundSteps()) {
+    start = Math.floor(low / step) * step;
+    end = Math.ceil(high / step) * step;
+    if ((end - start) / step <= maxIntervals) break;
+  }
   const ticks: number[] = [];
   for (let tick = start; tick <= end; tick += step) ticks.push(tick);
   return { domain: [start, end], ticks };
+}
+
+/**
+ * A Y tick's number, short enough for the axis: in full below 10,000 ("9,999"), in thousands with a k
+ * from there ("12.5k"). The unit is said elsewhere, as for formatWeightAmount.
+ */
+export function formatAxisAmount(value: number): string {
+  if (Math.abs(value) < 10000) return formatWeightAmount(value);
+  return `${formatWeightAmount(Math.round(value / 100) / 10)}k`;
 }

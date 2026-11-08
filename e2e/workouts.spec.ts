@@ -1,8 +1,9 @@
-import { test, expect, type Page } from "./fixtures";
+import { test, expect, type Locator, type Page } from "./fixtures";
 import {
   addSet,
   completeWorkout,
   createMovement,
+  displayDate,
   logCompletedWorkout,
   openPage,
   setRows,
@@ -10,16 +11,17 @@ import {
   uniqueToken,
 } from "./helpers";
 
-// Written out here rather than imported from src/lib/format.ts, so the test doesn't check the code
-// against itself: "Saturday, November 7, 2026".
-function longDate(instant: Date, timeZone: string) {
-  const options = { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone } as const;
-  return new Intl.DateTimeFormat("en-US", options).format(instant);
+/** The cell of a history row under the column with this header, once the header is on screen. */
+async function historyCell(page: Page, row: Locator, column: string) {
+  const header = page.getByRole("columnheader", { name: column, exact: true });
+  await expect(header).toBeVisible();
+  const index = await header.evaluate((cell: HTMLTableCellElement) => cell.cellIndex);
+  return row.getByRole("cell").nth(index);
 }
 
 /** Rows of the history table that hold a workout (the header row has the "select all" box instead). */
 function historyRows(page: Page) {
-  return page.getByRole("row").filter({ has: page.getByRole("checkbox", { name: "Select workout", exact: true }) });
+  return page.getByRole("row").filter({ has: page.getByRole("checkbox", { name: /^Select workout from / }) });
 }
 
 test.describe("Workouts", () => {
@@ -44,7 +46,7 @@ test.describe("Workouts", () => {
       const startDay = await cardDate.textContent();
       const timeZone = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
       const twoDaysLater = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
-      expect(startDay).not.toBe(longDate(twoDaysLater, timeZone));
+      expect(startDay).not.toBe(displayDate(twoDaysLater, timeZone, "long"));
       await page.clock.setSystemTime(twoDaysLater);
 
       // Away and back through the menu, so the page renders again with the moved clock.
@@ -110,7 +112,74 @@ test.describe("Workouts", () => {
       await openPage(page, "/workout-history");
 
       await expect(page.getByRole("columnheader", { name: movement })).toBeVisible();
-      await expect(historyRows(page)).toHaveText([/315 lb \/ 3 reps \/ 1 sets/]);
+      await expect(historyRows(page)).toHaveText([/315 lb \/ 3 reps \/ 1 set$/]);
+      // Each row's box says which workout it selects, by its date in the browser's zone.
+      const timeZone = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
+      await expect(
+        historyRows(page).getByRole("checkbox", {
+          name: `Select workout from ${displayDate(new Date(), timeZone, "short")}`,
+        }),
+      ).toBeVisible();
+    });
+
+    test("should count only the completed sets of a workout", async ({ page }) => {
+      const movement = `Bench Press ${uniqueToken()}`;
+      await createMovement(page, movement);
+      await startWorkout(page);
+      await addSet(page, { movement, weight: 185, reps: 6, count: 3 });
+      await page.getByRole("checkbox", { name: `Completed: ${movement}, set 2, 185 lb × 6` }).click();
+      await expect(setRows(page, movement).getByRole("checkbox", { checked: false })).toHaveCount(1);
+      await completeWorkout(page);
+
+      await openPage(page, "/workout-history");
+
+      const row = historyRows(page);
+      await expect(await historyCell(page, row, "Sets")).toHaveText("2 of 3");
+      await expect(await historyCell(page, row, movement)).toHaveText("185 lb / 6 reps / 2 of 3 sets");
+    });
+
+    test("should show a movement with no completed set as 0 of its sets", async ({ page }) => {
+      const token = uniqueToken();
+      const done = `Back Squat ${token}`;
+      const skipped = `Lunge ${token}`;
+      await createMovement(page, done);
+      await createMovement(page, skipped);
+      await startWorkout(page);
+      await addSet(page, { movement: done, weight: 225, reps: 5 });
+      await addSet(page, { movement: skipped, weight: 50, reps: 10, count: 2 });
+      for (const set of [1, 2]) {
+        await page.getByRole("checkbox", { name: `Completed: ${skipped}, set ${set}, 50 lb × 10` }).click();
+        await expect(page.getByRole("region", { name: skipped, exact: true })).toContainText(`${2 - set} of 2 completed`);
+      }
+      await completeWorkout(page);
+
+      await openPage(page, "/workout-history");
+
+      const row = historyRows(page);
+      await expect(await historyCell(page, row, "Sets")).toHaveText("1 of 3");
+      await expect(await historyCell(page, row, done)).toHaveText("225 lb / 5 reps / 1 set");
+      await expect(await historyCell(page, row, skipped)).toHaveText("0 of 2 sets");
+    });
+
+    test("should show each workout's muscle groups after its date", async ({ page }) => {
+      const token = uniqueToken();
+      const bench = `Bench Press ${token}`;
+      const curl = `Curl ${token}`;
+      await createMovement(page, bench, { muscleGroup: "Chest" });
+      await createMovement(page, curl);
+      await logCompletedWorkout(page, { movement: bench, weight: 185, reps: 6 });
+      await logCompletedWorkout(page, { movement: curl, weight: 30, reps: 12 });
+
+      await openPage(page, "/workout-history");
+
+      const headers = page.getByRole("columnheader");
+      await expect(headers.nth(1)).toHaveText("Date");
+      await expect(headers.nth(2)).toHaveText("Muscle groups");
+      await expect(await historyCell(page, historyRows(page).filter({ hasText: "185 lb" }), "Muscle groups")).toHaveText(
+        "Chest",
+      );
+      // A workout whose movements have no muscle group shows a dash, not an empty cell.
+      await expect(await historyCell(page, historyRows(page).filter({ hasText: "30 lb" }), "Muscle groups")).toHaveText("-");
     });
 
     test("should show a decimal weight in workout history", async ({ page }) => {
@@ -120,7 +189,7 @@ test.describe("Workouts", () => {
 
       await openPage(page, "/workout-history");
 
-      await expect(historyRows(page)).toHaveText([/135.5 lb \/ 5 reps \/ 1 sets/]);
+      await expect(historyRows(page)).toHaveText([/135.5 lb \/ 5 reps \/ 1 set$/]);
     });
   });
 
@@ -150,7 +219,7 @@ test.describe("Workouts", () => {
       await completeWorkout(page);
 
       await openPage(page, "/workout-history");
-      await expect(historyRows(page)).toHaveText([/0 lb \/ 12 reps \/ 1 sets/]);
+      await expect(historyRows(page)).toHaveText([/0 lb \/ 12 reps \/ 1 set$/]);
     });
   });
 

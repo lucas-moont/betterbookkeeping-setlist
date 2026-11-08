@@ -1,6 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Page } from "@playwright/test";
 
+/**
+ * A date as the screens write it, in that zone: "Nov 7, 2026" (short) or "Saturday, November 7, 2026"
+ * (long). Written out here rather than imported from src/lib/format.ts, so a test doesn't check the
+ * code against itself.
+ */
+export function displayDate(instant: Date, timeZone: string, style: "short" | "long") {
+  const options: Intl.DateTimeFormatOptions =
+    style === "long"
+      ? { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone }
+      : { month: "short", day: "numeric", year: "numeric", timeZone };
+  return new Intl.DateTimeFormat("en-US", options).format(instant);
+}
+
 /** A short random token for names that must not clash with other tests running in parallel. */
 export function uniqueToken() {
   return randomUUID().slice(0, 8);

@@ -1,5 +1,13 @@
 import { describe, expect, test } from "vitest";
-import { dateToTimestamp, monthTicks, tickShowsYear, timeDomain, timestampToDate, valueDomain } from "./time-axis";
+import {
+  dateToTimestamp,
+  formatAxisAmount,
+  monthTicks,
+  tickShowsYear,
+  timeDomain,
+  timestampToDate,
+  valueDomain,
+} from "./time-axis";
 
 const t = dateToTimestamp;
 
@@ -83,5 +91,35 @@ describe("valueDomain", () => {
 
   test("gives a single value room above and below", () => {
     expect(valueDomain([172.4])).toEqual({ domain: [171, 174], ticks: [171, 172, 173, 174] });
+  });
+
+  test("keeps a handful of round ticks for values in the thousands, like a Total Volume", () => {
+    expect(valueDomain([4200, 13850])).toEqual({
+      domain: [2500, 15000],
+      ticks: [2500, 5000, 7500, 10000, 12500, 15000],
+    });
+  });
+
+  test("never draws more than seven ticks, however wide the range", () => {
+    for (const values of [[40000, 52000], [1, 999], [100, 250000]]) {
+      expect(valueDomain(values).ticks.length).toBeLessThanOrEqual(7);
+    }
+  });
+
+  test("doesn't go below zero for values that can't", () => {
+    expect(valueDomain([5, 100])).toEqual({ domain: [0, 125], ticks: [0, 25, 50, 75, 100, 125] });
+  });
+});
+
+describe("formatAxisAmount", () => {
+  test("writes the number in full below 10,000", () => {
+    expect(formatAxisAmount(950)).toBe("950");
+    expect(formatAxisAmount(9999)).toBe("9,999");
+  });
+
+  test("writes thousands with a k from 10,000, to one decimal", () => {
+    expect(formatAxisAmount(10000)).toBe("10k");
+    expect(formatAxisAmount(12500)).toBe("12.5k");
+    expect(formatAxisAmount(12549)).toBe("12.5k");
   });
 });

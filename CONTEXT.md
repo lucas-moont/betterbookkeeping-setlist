@@ -103,6 +103,10 @@ _Avoid_: Tonnage, work
 **Total Volume**:
 The sum of Volume across all Sets of the Movement on a Training Day.
 
+**Gap**:
+15 or more days between two Training Days of a Movement in a row, shown on its Progression Chart as "3 weeks without Bench Press". Missing a single weekly session leaves 14 days, which is not a Gap. An Open Gap runs from the last Training Day to today, once that is 15 days or more. Setlist knows no training plan, so a Gap states the fact and never calls a day missed.
+_Avoid_: Missed workout, skipped session
+
 **Body Weight Chart**:
 A chart of the user's Body Weight Entries over time, one point per date.
 _Avoid_: Weight history graph
