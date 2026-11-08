@@ -45,7 +45,7 @@ Use **Bun** for everything.
 ## Configuration
 
 - `.env` is committed and holds the non-secret local development defaults (`DATABASE_URL`, `VITE_ENVIRONMENT`, `ENVIRONMENT`). Overrides go in `.env.local`, which is gitignored.
-- `TRUST_PROXY`: set it to `true` only when the app runs behind exactly one reverse proxy that appends the client address to `X-Forwarded-For`; the sign-in limit then counts that address. Unset (as in development), the connection's own address counts and the header is ignored. It isn't in `.env`, because the Docker setup has no proxy.
+- `TRUST_PROXY`: set it to `true` only when the app runs behind exactly one reverse proxy that appends the client address to `X-Forwarded-For`; the sign-in limit then counts that address (ADR 0012). Unset (as in development), the connection's own address counts and the header is ignored. It isn't in `.env`, because the Docker setup has no proxy.
 - In Docker, the app reaches Postgres at `postgres:5432`. From the host, Postgres is at `localhost:55432`.
 - The app container syncs `src/` and `public/` and rebuilds when `prisma/`, `package.json`, or `bun.lock` change.
 
