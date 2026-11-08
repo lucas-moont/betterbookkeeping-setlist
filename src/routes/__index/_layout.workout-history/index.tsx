@@ -1,12 +1,7 @@
-import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Trash2 } from "lucide-react";
-import { deleteWorkoutsMutationOptions, workoutHistoryQueryOptions } from "@/lib/workouts/queries";
-import { useSuspenseQuery, useMutation } from "@tanstack/react-query";
-import { formatDate, formatWeight } from "@/lib/format";
-import { useTimeZone } from "@/lib/time-zone";
+import { useSuspenseQuery } from "@tanstack/react-query";
+import { workoutHistoryQueryOptions } from "@/lib/workouts/queries";
+import { CompletedWorkouts } from "./-components/completed-workouts";
 
 export const Route = createFileRoute("/__index/_layout/workout-history/")({
   loader: async ({ context }) => {
@@ -17,45 +12,6 @@ export const Route = createFileRoute("/__index/_layout/workout-history/")({
 
 function WorkoutHistoryPage() {
   const { data: workouts } = useSuspenseQuery(workoutHistoryQueryOptions());
-  const timeZone = useTimeZone();
-  const [selectedWorkouts, setSelectedWorkouts] = useState<Set<string>>(new Set());
-
-  const deleteWorkoutsMutation = useMutation({
-    ...deleteWorkoutsMutationOptions(),
-    onSuccess: () => {
-      setSelectedWorkouts(new Set());
-    },
-  });
-
-  // Get all unique movements across all workouts
-  const uniqueMovements = Array.from(
-    new Map(workouts.flatMap((w) => w.sets.map((s) => [s.movement.id, s.movement.name]))).entries(),
-  ).sort((a, b) => a[1].localeCompare(b[1]));
-
-  const toggleWorkout = (id: string) => {
-    setSelectedWorkouts((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  };
-
-  const toggleAll = () => {
-    if (selectedWorkouts.size === workouts.length) {
-      setSelectedWorkouts(new Set());
-    } else {
-      setSelectedWorkouts(new Set(workouts.map((w) => w.id)));
-    }
-  };
-
-  const handleDeleteSelected = () => {
-    if (selectedWorkouts.size === 0) return;
-    deleteWorkoutsMutation.mutate(Array.from(selectedWorkouts));
-  };
 
   return (
     <div className="space-y-6">
@@ -63,97 +19,7 @@ function WorkoutHistoryPage() {
         <h1 className="text-2xl font-semibold text-slate-900">Workout History</h1>
       </div>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Completed Workouts</CardTitle>
-          <Button size="sm" variant="destructive" onClick={handleDeleteSelected} disabled={selectedWorkouts.size === 0}>
-            <Trash2 className="w-4 h-4 mr-2" />
-            {deleteWorkoutsMutation.isPending ? "Deleting..." : `Delete Selected (${selectedWorkouts.size})`}
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {workouts.length === 0 ? (
-            <p className="text-sm text-slate-500">No completed workouts yet.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200">
-                    <th className="py-3 px-4">
-                      <input
-                        aria-label="Select all workouts"
-                        type="checkbox"
-                        checked={selectedWorkouts.size === workouts.length}
-                        onChange={toggleAll}
-                        className="rounded border-gray-300"
-                      />
-                    </th>
-                    <th className="text-left py-3 px-4 font-medium text-slate-600">Date</th>
-                    <th className="text-right py-3 px-4 font-medium text-slate-600">Sets</th>
-                    {uniqueMovements.map(([id, name]) => (
-                      <th key={id} className="text-right py-3 px-4 font-medium text-slate-600">
-                        {name}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {workouts.map((workout) => {
-                    const setsByMovement = new Map<string, typeof workout.sets>();
-                    workout.sets.forEach((set) => {
-                      const existing = setsByMovement.get(set.movement.id) || [];
-                      setsByMovement.set(set.movement.id, [...existing, set]);
-                    });
-
-                    const isSelected = selectedWorkouts.has(workout.id);
-                    return (
-                      <tr
-                        key={workout.id}
-                        className={`border-b border-slate-100 ${isSelected ? "bg-primary/10" : "hover:bg-slate-50"}`}>
-                        <td className="py-3 px-4">
-                          <input
-                            aria-label="Select workout"
-                            type="checkbox"
-                            checked={selectedWorkouts.has(workout.id)}
-                            onChange={() => toggleWorkout(workout.id)}
-                            className="rounded border-gray-300"
-                          />
-                        </td>
-                        <td className="py-3 px-4 text-slate-500">
-                          {workout.completedAt
-                            ? formatDate(workout.completedAt, timeZone)
-                            : "-"}
-                        </td>
-                        <td className="py-3 px-4 text-right text-slate-600">{workout.sets.length}</td>
-                        {uniqueMovements.map(([movementId]) => {
-                          const movementSets = setsByMovement.get(movementId);
-                          if (!movementSets || movementSets.length === 0) {
-                            return (
-                              <td key={movementId} className="py-3 px-4 text-right text-slate-300">
-                                -
-                              </td>
-                            );
-                          }
-                          const maxWeight = Math.max(...movementSets.map((s) => s.weight));
-                          const avgReps = Math.round(
-                            movementSets.reduce((sum, s) => sum + s.reps, 0) / movementSets.length,
-                          );
-                          const numSets = movementSets.length;
-                          return (
-                            <td key={movementId} className="py-3 px-4 text-right text-slate-600">
-                              {formatWeight(maxWeight)} / {avgReps} reps / {numSets} sets
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <CompletedWorkouts workouts={workouts} />
     </div>
   );
 }
