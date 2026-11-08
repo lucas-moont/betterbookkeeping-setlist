@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { ArrowLeftRight, Trash2 } from "lucide-react";
+import { ArrowLeftRight, ChevronDown, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useTimeZone } from "@/lib/time-zone";
@@ -9,10 +9,42 @@ import { deleteWorkoutsMutationOptions } from "@/lib/workouts/queries";
 import { historyMovements } from "./workout-summary";
 import { WorkoutRow } from "./workout-row";
 
-/** The Completed Workouts table: one row per workout, one column per Movement, and bulk delete. */
-export function CompletedWorkouts({ workouts }: { workouts: CompletedWorkout[] }) {
+/**
+ * The Completed Workouts table: one row per loaded workout, one column per Movement any of them
+ * has, bulk delete, and Load more at the end while older workouts remain.
+ */
+export function CompletedWorkouts({
+  workouts,
+  hasMore,
+  loadingMore,
+  loadMoreFailed,
+  onLoadMore,
+}: {
+  workouts: CompletedWorkout[];
+  hasMore: boolean;
+  loadingMore: boolean;
+  loadMoreFailed: boolean;
+  onLoadMore: () => void;
+}) {
   const timeZone = useTimeZone();
   const [selectedWorkouts, setSelectedWorkouts] = useState<Set<string>>(new Set());
+  const rowsRef = useRef<HTMLTableSectionElement>(null);
+  // The first row Load more is bringing, until it arrives.
+  const firstNewRow = useRef<number | null>(null);
+
+  // When the last page arrives, the button goes and the keyboard focus with it, to the page's start.
+  // It goes to the first row that just came in instead, where the lifter was reading.
+  useEffect(() => {
+    const index = firstNewRow.current;
+    if (index === null || workouts.length <= index) return;
+    firstNewRow.current = null;
+    if (!hasMore) rowsRef.current?.rows[index]?.querySelector("input")?.focus();
+  }, [workouts.length, hasMore]);
+
+  const loadMore = () => {
+    firstNewRow.current = workouts.length;
+    onLoadMore();
+  };
 
   const deleteWorkoutsMutation = useMutation({
     ...deleteWorkoutsMutationOptions(),
@@ -35,6 +67,7 @@ export function CompletedWorkouts({ workouts }: { workouts: CompletedWorkout[] }
     });
   };
 
+  // Only what is loaded: Select all never deletes a workout the lifter hasn't seen.
   const toggleAll = () => {
     if (selectedWorkouts.size === workouts.length) {
       setSelectedWorkouts(new Set());
@@ -86,7 +119,7 @@ export function CompletedWorkouts({ workouts }: { workouts: CompletedWorkout[] }
                   <tr className="border-b border-slate-200">
                     <th className="py-3 px-4">
                       <input
-                        aria-label="Select all workouts"
+                        aria-label="Select all loaded workouts"
                         type="checkbox"
                         checked={selectedWorkouts.size === workouts.length}
                         onChange={toggleAll}
@@ -105,7 +138,7 @@ export function CompletedWorkouts({ workouts }: { workouts: CompletedWorkout[] }
                     ))}
                   </tr>
                 </thead>
-                <tbody>
+                <tbody ref={rowsRef}>
                   {workouts.map((workout) => (
                     <WorkoutRow
                       key={workout.id}
@@ -123,6 +156,25 @@ export function CompletedWorkouts({ workouts }: { workouts: CompletedWorkout[] }
               <ArrowLeftRight aria-hidden="true" className="h-3.5 w-3.5" />
               Swipe the table sideways to see every movement.
             </p>
+            {hasMore && (
+              <div className="flex flex-col items-center gap-2 pt-4 sm:flex-row sm:justify-center sm:gap-3">
+                <Button
+                  variant="outline"
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  className="h-11 w-full sm:h-10 sm:w-auto">
+                  <ChevronDown aria-hidden="true" className="h-4 w-4" />
+                  {loadingMore ? "Loading..." : "Load more"}
+                </Button>
+                {/* The workouts already on screen stay, so a failed page only needs saying here; the
+                    button stays to try again. */}
+                {loadMoreFailed && !loadingMore && (
+                  <p role="alert" className="text-sm text-red-600">
+                    Couldn't load more workouts.
+                  </p>
+                )}
+              </div>
+            )}
           </>
         )}
       </CardContent>
