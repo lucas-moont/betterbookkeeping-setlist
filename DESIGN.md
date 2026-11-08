@@ -208,6 +208,7 @@ Plain and dependable.
 - **Outline:** white with a gray-300 border and gray-700 text; hover gray-50 fill and gray-400 border. Used for secondary page actions such as "Complete Workout".
 - **Ghost:** no fill, gray-700 text, gray-100 on hover. Used for "Log out" and icon-only remove buttons (with slate-500 icons, which pass the 3:1 contrast an icon needs).
 - **Destructive:** red-600 fill, white text, red-700 on hover.
+- **Destructive outline:** white with a red-200 border and red-700 text; hover red-50 fill and red-300 border. For a destructive choice among equals, such as "Discard workout" in the empty-workout dialog, where a red fill would read as the default.
 - **Focus:** a 2px Chalk Rust ring at 50% opacity with a 2px offset. Disabled is 50% opacity.
 - **Icons:** a 16px lucide icon before the label, 8px gap.
 - **Cursor:** the pointer. Tailwind v4's preflight leaves buttons on the default cursor, so one base rule in `src/styles.css` sets it for everything clickable. Disabled buttons keep the default cursor.

@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 import { forwardRef, type ButtonHTMLAttributes } from "react";
 
-type ButtonVariant = "default" | "outline" | "ghost" | "destructive" | "secondary" | "link";
+type ButtonVariant = "default" | "outline" | "ghost" | "destructive" | "destructive-outline" | "secondary" | "link";
 type ButtonSize = "default" | "sm" | "lg" | "icon";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -14,6 +14,8 @@ const variantStyles: Record<ButtonVariant, string> = {
   outline: "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-400",
   ghost: "text-gray-700 hover:bg-gray-100 hover:text-gray-900",
   destructive: "bg-red-600 text-white hover:bg-red-700 shadow-sm",
+  // A destructive choice next to others of equal weight, where a red fill would read as the default.
+  "destructive-outline": "border border-red-200 bg-white text-red-700 hover:bg-red-50 hover:border-red-300",
   secondary: "bg-gray-100 text-gray-900 hover:bg-gray-200",
   link: "text-primary underline-offset-4 hover:underline",
 };

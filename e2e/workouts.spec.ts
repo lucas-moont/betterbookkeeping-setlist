@@ -4,6 +4,7 @@ import {
   completeWorkout,
   createMovement,
   displayDate,
+  historyRows,
   logCompletedWorkout,
   openPage,
   setRows,
@@ -17,11 +18,6 @@ async function historyCell(page: Page, row: Locator, column: string) {
   await expect(header).toBeVisible();
   const index = await header.evaluate((cell: HTMLTableCellElement) => cell.cellIndex);
   return row.getByRole("cell").nth(index);
-}
-
-/** Rows of the history table that hold a workout (the header row has the "select all" box instead). */
-function historyRows(page: Page) {
-  return page.getByRole("row").filter({ has: page.getByRole("checkbox", { name: /^Select workout from / }) });
 }
 
 test.describe("Workouts", () => {
