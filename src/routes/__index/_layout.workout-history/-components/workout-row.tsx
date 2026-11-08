@@ -1,14 +1,16 @@
 import type { ReactNode } from "react";
+import { CalendarCheck } from "lucide-react";
 import { formatDate, formatWeight } from "@/lib/format";
 import type { Movement } from "@/lib/movements";
 import { muscleGroupLabels } from "@/lib/movements/muscle-group";
 import { cn } from "@/lib/utils";
 import type { CompletedWorkout } from "@/lib/workouts";
-import { movementSummary, setCount, type SetCount } from "./workout-summary";
+import { gymVisitLabel, movementSummary, setCount, type SetCount } from "./workout-summary";
 
 /**
  * One Completed Workout in the history table: its date, Muscle Groups, set count, and one cell per
- * Movement column. The numbers come from its Completed Sets only.
+ * Movement column. The numbers come from its Completed Sets only, so a Gym Visit, which has none,
+ * says so in one label across the set count and the Movement columns.
  */
 export function WorkoutRow({
   workout,
@@ -24,6 +26,7 @@ export function WorkoutRow({
   onToggle: () => void;
 }) {
   const date = formatDate(workout.completedAt, timeZone);
+  const gymVisit = gymVisitLabel(workout.sets);
 
   return (
     <tr className={cn("border-b border-slate-100", selected ? "bg-primary/10" : "hover:bg-slate-50")}>
@@ -44,12 +47,23 @@ export function WorkoutRow({
           <Dash />
         )}
       </td>
-      <td className="whitespace-nowrap py-3 px-4 text-right text-slate-600">
-        <OutOf count={setCount(workout.sets)} />
-      </td>
-      {movements.map((movement) => (
-        <MovementCell key={movement.id} workout={workout} movementId={movement.id} />
-      ))}
+      {gymVisit ? (
+        <td colSpan={1 + movements.length} className="whitespace-nowrap py-3 px-4 text-slate-500">
+          <span className="inline-flex items-center gap-2">
+            <CalendarCheck aria-hidden="true" className="h-4 w-4 text-slate-500" />
+            {gymVisit}
+          </span>
+        </td>
+      ) : (
+        <>
+          <td className="whitespace-nowrap py-3 px-4 text-right text-slate-600">
+            <OutOf count={setCount(workout.sets)} />
+          </td>
+          {movements.map((movement) => (
+            <MovementCell key={movement.id} workout={workout} movementId={movement.id} />
+          ))}
+        </>
+      )}
     </tr>
   );
 }

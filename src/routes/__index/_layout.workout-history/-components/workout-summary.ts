@@ -27,9 +27,27 @@ export function movementSummary(sets: WorkoutSet[], movementId: string): Movemen
   };
 }
 
-/** The table's Movement columns: every Movement with a set in any of the workouts, by name. */
+/**
+ * The table's Movement columns: every Movement with a set in any of the workouts, by name. A Gym
+ * Visit's row is one label across these columns, so a Movement only a Gym Visit has gets none.
+ */
 export function historyMovements(workouts: { sets: WorkoutSet[] }[]): Movement[] {
   const movements = new Map<string, Movement>();
-  for (const workout of workouts) for (const set of workout.sets) movements.set(set.movement.id, set.movement);
+  for (const workout of workouts) {
+    if (isGymVisit(workout.sets)) continue;
+    for (const set of workout.sets) movements.set(set.movement.id, set.movement);
+  }
   return [...movements.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** What a Gym Visit's row says instead of its numbers, or null for a workout with a Completed Set. */
+export function gymVisitLabel(sets: WorkoutSet[]): string | null {
+  if (!isGymVisit(sets)) return null;
+  if (sets.length === 0) return "Gym visit, no sets logged";
+  return `Gym visit, 0 of ${sets.length} ${sets.length === 1 ? "set" : "sets"} completed`;
+}
+
+/** A Completed Workout with no Completed Sets (CONTEXT.md, Gym Visit). */
+function isGymVisit(sets: WorkoutSet[]): boolean {
+  return !sets.some((set) => set.completed);
 }

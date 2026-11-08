@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { Movement } from "@/lib/movements";
 import type { WorkoutSet } from "@/lib/workouts";
-import { historyMovements, movementSummary, setCount } from "./workout-summary";
+import { gymVisitLabel, historyMovements, movementSummary, setCount } from "./workout-summary";
 
 const movement = (name: string): Movement => ({ id: name, name, muscleGroup: null, isBodyWeight: false });
 
@@ -57,5 +57,29 @@ describe("historyMovements", () => {
     const workouts = [{ sets: [set(squat, 5, 100)] }, { sets: [set(bench, 5, 100, false), set(squat, 3, 200)] }];
 
     expect(historyMovements(workouts).map((m) => m.name)).toEqual(["Back Squat", "Bench Press"]);
+  });
+
+  // A Gym Visit's row is one label across the Movement columns, so its Planned Sets add no column.
+  test("leaves out the Movements only a Gym Visit has", () => {
+    const workouts = [{ sets: [set(squat, 5, 100)] }, { sets: [set(bench, 5, 100, false), set(squat, 3, 200, false)] }];
+
+    expect(historyMovements(workouts).map((m) => m.name)).toEqual(["Back Squat"]);
+  });
+});
+
+describe("gymVisitLabel", () => {
+  test("says no sets were logged for a Gym Visit with no Sets", () => {
+    expect(gymVisitLabel([])).toBe("Gym visit, no sets logged");
+  });
+
+  test("counts the Planned Sets of a Gym Visit as none completed", () => {
+    expect(gymVisitLabel([set(bench, 5, 100, false), set(squat, 3, 200, false)])).toBe(
+      "Gym visit, 0 of 2 sets completed",
+    );
+    expect(gymVisitLabel([set(bench, 5, 100, false)])).toBe("Gym visit, 0 of 1 set completed");
+  });
+
+  test("is nothing for a workout with a Completed Set", () => {
+    expect(gymVisitLabel([set(bench, 5, 100, false), set(squat, 3, 200)])).toBeNull();
   });
 });
