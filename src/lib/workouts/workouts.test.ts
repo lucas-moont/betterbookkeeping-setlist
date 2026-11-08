@@ -101,7 +101,7 @@ describe("start", () => {
         const results = await Promise.all(clients.map((client) => workouts.start(client, user.id)));
 
         expect(new Set(results.map((result) => expectOk(result).workout.id)).size).toBe(1);
-        expectOk(await workouts.complete(db, user.id));
+        expectOk(await workouts.complete(db, user.id, { whenEmpty: "save" }));
         expect(await workouts.get(db, user.id)).toBeNull();
       }
     } finally {
@@ -503,10 +503,13 @@ describe("complete", () => {
   test("completing twice fails the second time and keeps the first completion time", async () => {
     const user = await createUser(db);
     await workouts.start(db, user.id);
-    await workouts.complete(db, user.id);
+    await workouts.complete(db, user.id, { whenEmpty: "save" });
     const [completed] = await workouts.history(db, user.id);
 
-    expect(await workouts.complete(db, user.id)).toEqual({ ok: false, reason: "no-current-workout" });
+    expect(await workouts.complete(db, user.id, { whenEmpty: "save" })).toEqual({
+      ok: false,
+      reason: "no-current-workout",
+    });
 
     expect(await workouts.history(db, user.id)).toEqual([completed]);
   });
@@ -517,9 +520,165 @@ describe("complete", () => {
     await workouts.start(db, user.id);
     const { workout: othersWorkout } = expectOk(await workouts.start(db, otherUser.id));
 
-    await workouts.complete(db, user.id);
+    await workouts.complete(db, user.id, { whenEmpty: "save" });
 
     expect(await workouts.get(db, otherUser.id)).toEqual(othersWorkout);
+  });
+
+  describe("a workout with no Completed Sets", () => {
+    test("returns empty-workout when it has no Sets, and stays the Current Workout", async () => {
+      const user = await createUser(db);
+      const { workout } = expectOk(await workouts.start(db, user.id));
+
+      expect(await workouts.complete(db, user.id)).toEqual({ ok: false, reason: "empty-workout" });
+
+      expect(await workouts.get(db, user.id)).toEqual(workout);
+      expect(await workouts.history(db, user.id)).toEqual([]);
+    });
+
+    test("returns empty-workout when every Set is a Planned Set", async () => {
+      const user = await createUser(db);
+      const movement = await createMovement(db, user.id);
+      const { workout } = expectOk(await workouts.start(db, user.id));
+      await logPlannedSet(user.id, movement.id);
+
+      expect(await workouts.complete(db, user.id)).toEqual({ ok: false, reason: "empty-workout" });
+
+      expect((await workouts.get(db, user.id))?.id).toBe(workout.id);
+    });
+
+    test("save completes it as a Gym Visit, its Planned Sets still not completed", async () => {
+      const user = await createUser(db);
+      const movement = await createMovement(db, user.id);
+      const { workout } = expectOk(await workouts.start(db, user.id));
+      const set = await logPlannedSet(user.id, movement.id);
+
+      expect(await workouts.complete(db, user.id, { whenEmpty: "save" })).toEqual({ ok: true });
+
+      expect(await workouts.get(db, user.id)).toBeNull();
+      const [visit] = await workouts.history(db, user.id);
+      expect(visit.id).toBe(workout.id);
+      expect(visit.sets.map(({ id, completed }) => ({ id, completed }))).toEqual([{ id: set.id, completed: false }]);
+    });
+
+    test("discard deletes it with its Planned Sets, so there is nothing to keep or show", async () => {
+      const user = await createUser(db);
+      const movement = await createMovement(db, user.id);
+      await workouts.start(db, user.id);
+      const set = await logPlannedSet(user.id, movement.id);
+
+      expect(await workouts.complete(db, user.id, { whenEmpty: "discard" })).toEqual({ ok: true });
+
+      expect(await workouts.get(db, user.id)).toBeNull();
+      expect(await workouts.history(db, user.id)).toEqual([]);
+      // The Set went with the Workout: it can't be found to complete again.
+      expect(await workouts.setCompleted(db, user.id, set.id, true)).toEqual({ ok: false, reason: "set-not-found" });
+    });
+
+    // The dialog asked about an empty workout, but a Set was completed since (in another tab).
+    test("discard returns workout-not-empty and deletes nothing once a Set is completed", async () => {
+      const user = await createUser(db);
+      const movement = await createMovement(db, user.id);
+      const { workout } = expectOk(await workouts.start(db, user.id));
+      const planned = await logPlannedSet(user.id, movement.id);
+      const done = await logSet(user.id, movement.id, { reps: 3 });
+
+      expect(await workouts.complete(db, user.id, { whenEmpty: "discard" })).toEqual({
+        ok: false,
+        reason: "workout-not-empty",
+      });
+
+      const current = await workouts.get(db, user.id);
+      expect(current?.id).toBe(workout.id);
+      expect(current?.sets.map((s) => s.id)).toEqual([planned.id, done.id]);
+    });
+
+    test("a workout with a Completed Set still completes with no choice, its Planned Sets kept", async () => {
+      const user = await createUser(db);
+      const movement = await createMovement(db, user.id);
+      const { workout } = expectOk(await workouts.start(db, user.id));
+      const planned = await logPlannedSet(user.id, movement.id);
+      const done = await logSet(user.id, movement.id, { reps: 3 });
+
+      expect(await workouts.complete(db, user.id)).toEqual({ ok: true });
+
+      const [completed] = await workouts.history(db, user.id);
+      expect(completed.id).toBe(workout.id);
+      expect(completed.sets.map(({ id, completed }) => ({ id, completed }))).toEqual([
+        { id: planned.id, completed: false },
+        { id: done.id, completed: true },
+      ]);
+    });
+
+    // What the reviewers found: a write from another tab between discard's read and its deletes.
+    // The server function runs complete in one REPEATABLE READ transaction (completeTransaction), so
+    // the whole discard works from one snapshot. Each test takes that snapshot first, then writes
+    // from another client, then discards inside the same transaction: the write lands exactly in
+    // the gap. Postgres then refuses the transaction, and nothing is deleted.
+    describe("discard racing another tab", () => {
+      const tabs = () => new PrismaClient({ adapter: new PrismaPg({ connectionString: testDatabaseUrl }) });
+
+      async function discardAfter(userId: string, write: () => Promise<unknown>) {
+        const client = tabs();
+        try {
+          return await client.$transaction(async (tx) => {
+            await tx.$queryRaw`SELECT 1`; // REPEATABLE READ takes its snapshot at the first statement.
+            await write();
+            return workouts.complete(tx, userId, { whenEmpty: "discard" });
+          }, workouts.completeTransaction);
+        } finally {
+          await client.$disconnect();
+        }
+      }
+
+      test("a Set completed in the gap rolls the discard back", async () => {
+        const user = await createUser(db);
+        const movement = await createMovement(db, user.id);
+        const { workout } = expectOk(await workouts.start(db, user.id));
+        const first = await logPlannedSet(user.id, movement.id);
+        const second = await logPlannedSet(user.id, movement.id);
+
+        await expect(
+          discardAfter(user.id, async () => expectOk(await workouts.setCompleted(db, user.id, first.id, true))),
+        ).rejects.toThrow();
+
+        const current = await workouts.get(db, user.id);
+        expect(current?.id).toBe(workout.id);
+        expect(current?.sets.map(({ id, completed }) => ({ id, completed }))).toEqual([
+          { id: first.id, completed: true },
+          { id: second.id, completed: false },
+        ]);
+      });
+
+      test("a Set added in the gap rolls the discard back, Planned Sets included", async () => {
+        const user = await createUser(db);
+        const movement = await createMovement(db, user.id);
+        const { workout } = expectOk(await workouts.start(db, user.id));
+        const planned = await logPlannedSet(user.id, movement.id);
+        let added: workouts.WorkoutSet | undefined;
+
+        await expect(
+          discardAfter(user.id, async () => {
+            added = await logSet(user.id, movement.id, { reps: 3 });
+          }),
+        ).rejects.toThrow();
+
+        const current = await workouts.get(db, user.id);
+        expect(current?.id).toBe(workout.id);
+        expect(current?.sets.map((set) => set.id)).toEqual([planned.id, added?.id]);
+      });
+    });
+
+    test("save on a workout with a Completed Set just completes it", async () => {
+      const user = await createUser(db);
+      const movement = await createMovement(db, user.id);
+      const { workout } = expectOk(await workouts.start(db, user.id));
+      await logSet(user.id, movement.id);
+
+      expect(await workouts.complete(db, user.id, { whenEmpty: "save" })).toEqual({ ok: true });
+
+      expect(await historyIds(user.id)).toEqual([workout.id]);
+    });
   });
 });
 
@@ -589,6 +748,19 @@ describe("deleteWorkouts", () => {
     expect(await historyIds(user.id)).toEqual([]);
     expect(await historyIds(owner.id)).toEqual([othersWorkout]);
   });
+
+  test("never deletes the Current Workout, even when its id is in the list", async () => {
+    const user = await createUser(db);
+    const movement = await createMovement(db, user.id);
+    const { workout } = expectOk(await workouts.start(db, user.id));
+    const set = await logSet(user.id, movement.id);
+
+    await workouts.deleteWorkouts(db, user.id, [workout.id]);
+
+    const current = await workouts.get(db, user.id);
+    expect(current?.id).toBe(workout.id);
+    expect(current?.sets.map((s) => s.id)).toEqual([set.id]);
+  });
 });
 
 /** Logs a Set in the user's Current Workout, for tests where adding it is setup, not the subject. */
@@ -596,12 +768,20 @@ async function logSet(userId: string, movementId: string, { reps = 5, weight = 2
   return expectOk(await workouts.addSet(db, userId, { movementId, reps, weight }, "UTC")).sets[0];
 }
 
+/** Logs a Set and un-completes it, so it is a Planned Set. Returns it as it was logged. */
+async function logPlannedSet(userId: string, movementId: string) {
+  const set = await logSet(userId, movementId);
+  expectOk(await workouts.setCompleted(db, userId, set.id, false));
+  return set;
+}
+
 async function historyIds(userId: string) {
   return (await workouts.history(db, userId)).map((workout) => workout.id);
 }
 
+/** Completes a workout with no Sets: a Gym Visit. */
 async function completeEmptyWorkout(userId: string) {
   const { workout } = expectOk(await workouts.start(db, userId));
-  expectOk(await workouts.complete(db, userId));
+  expectOk(await workouts.complete(db, userId, { whenEmpty: "save" }));
   return workout.id;
 }

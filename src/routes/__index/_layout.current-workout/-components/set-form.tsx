@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useState, type Ref } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -48,9 +48,12 @@ function errorsByField(issues: readonly { path: readonly PropertyKey[]; message:
 export function SetForm({
   movements,
   latestBodyWeight,
+  movementRef,
 }: {
   movements: Movement[];
   latestBodyWeight: BodyWeightEntry | undefined;
+  /** The Movement select, where the page sends the focus back to logging. */
+  movementRef?: Ref<HTMLSelectElement>;
 }) {
   const helpId = useId();
   const messageId = useId();
@@ -133,6 +136,7 @@ export function SetForm({
       onSubmit={handleAddSet}
       className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_8rem_6rem_7rem_auto] sm:items-center">
       <Select
+        ref={movementRef}
         aria-label="Movement"
         value={selectedMovement}
         onChange={(e) => {

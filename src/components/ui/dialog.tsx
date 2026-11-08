@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode, type RefObject } from "react";
 import { cn } from "@/lib/utils";
 
 interface DialogProps {
@@ -7,6 +7,14 @@ interface DialogProps {
   onClose: () => void;
   title: string;
   description?: string;
+  /**
+   * Where the focus starts. "content" is the browser's choice, the first control (a form's first
+   * field). "title" focuses the title instead, for a choice with no default: a stray Enter then
+   * presses nothing.
+   */
+  initialFocus?: "content" | "title";
+  /** Where the focus goes once it closes. Without it, the browser returns it to whatever opened the dialog. */
+  returnFocus?: RefObject<HTMLElement | null>;
   className?: string;
   children: ReactNode;
 }
@@ -17,17 +25,34 @@ interface DialogProps {
  * (DESIGN.md, The Flat Card Rule). The children mount only while it is open, so a form inside
  * starts fresh every time.
  */
-function Dialog({ open, onClose, title, description, className, children }: DialogProps) {
+function Dialog({
+  open,
+  onClose,
+  title,
+  description,
+  initialFocus = "content",
+  returnFocus,
+  className,
+  children,
+}: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
   const titleId = useId();
   const descriptionId = useId();
 
   useEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
-    if (!open && dialog.open) dialog.close();
-  }, [open]);
+    if (open && !dialog.open) {
+      dialog.showModal();
+      if (initialFocus === "title") titleRef.current?.focus();
+    }
+    if (!open && dialog.open) {
+      // close() puts the focus back where it was before showModal(), so returnFocus comes after it.
+      dialog.close();
+      returnFocus?.current?.focus();
+    }
+  }, [open, initialFocus, returnFocus]);
 
   return (
     <dialog
@@ -52,7 +77,12 @@ function Dialog({ open, onClose, title, description, className, children }: Dial
       {open && (
         <div className="space-y-4 p-6">
           <div className="space-y-1.5">
-            <h2 id={titleId} className="text-lg font-semibold leading-none tracking-tight text-slate-900">
+            <h2
+              ref={titleRef}
+              id={titleId}
+              // Focusable only from code, so Tab still moves between the controls alone.
+              tabIndex={initialFocus === "title" ? -1 : undefined}
+              className="text-lg font-semibold leading-none tracking-tight text-slate-900 focus:outline-none">
               {title}
             </h2>
             {description && (

@@ -105,6 +105,11 @@ export async function addSet(page: Page, set: NewSet) {
   );
 }
 
+/** Rows of the history table that hold a workout (the header row has the "select all" box instead). */
+export function historyRows(page: Page) {
+  return page.getByRole("row").filter({ has: page.getByRole("checkbox", { name: /^Select workout from / }) });
+}
+
 /** Completes the Current Workout, which must already be open on the page. */
 export async function completeWorkout(page: Page) {
   await page.getByRole("button", { name: "Complete Workout" }).click();

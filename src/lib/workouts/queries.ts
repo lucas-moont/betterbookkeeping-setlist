@@ -1,4 +1,5 @@
-import { queryOptions } from "@tanstack/react-query";
+import { queryOptions, type MutationFunctionContext } from "@tanstack/react-query";
+import { ServerResultError } from "@/lib/error-codes";
 import { serverMutationOptions } from "@/lib/server-mutation";
 import { bodyWeightKeys } from "@/lib/body-weight/queries";
 import { progressionKeys } from "@/lib/progression/queries";
@@ -13,6 +14,7 @@ import {
   setCompletedServerFn,
   type SetCompletedChange,
 } from "./workouts.functions";
+import type { WhenEmpty } from "./index";
 import type { SetDraft } from "./set-draft";
 
 // The Current Workout and the history read the same rows, so they share the "workouts" root.
@@ -68,11 +70,24 @@ export const removeSetMutationOptions = () =>
   });
 
 // A Completed Workout leaves the Current Workout and joins the history and the Progression Charts.
-export const completeWorkoutMutationOptions = () =>
-  serverMutationOptions({
-    mutationFn: () => completeWorkoutServerFn(),
+// A workout with no Completed Sets is refused with empty-workout until the user picks whenEmpty:
+// the page asks in a dialog instead of a toast.
+export const completeWorkoutMutationOptions = () => ({
+  ...serverMutationOptions({
+    mutationFn: (whenEmpty?: WhenEmpty) => completeWorkoutServerFn({ data: { whenEmpty } }),
     invalidates: [workoutKeys.all, progressionKeys.all],
-  });
+    formErrors: ["empty-workout"],
+  }),
+  // A refusal means the Current Workout on screen was out of date, for example a Set completed in
+  // another tab. Reload it before the error lands, so the dialog counts the right Sets and the
+  // screen shows why discarding was refused.
+  onError: (
+    error: Error,
+    _variables: WhenEmpty | undefined,
+    _onMutateResult: unknown,
+    { client }: MutationFunctionContext,
+  ) => (error instanceof ServerResultError ? client.invalidateQueries({ queryKey: workoutKeys.current }) : undefined),
+});
 
 export const deleteWorkoutsMutationOptions = () =>
   serverMutationOptions({
