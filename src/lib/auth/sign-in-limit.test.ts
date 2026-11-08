@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { getServerSidePrismaClient } from "@/lib/db.server";
 import { expectOk } from "@/test/expect-ok";
 import { memoryCookies } from "@/test/memory-cookies";
+import { clientIp } from "./client-ip";
 import * as auth from "./index";
 import { verifyPassword } from "./password";
 
@@ -146,6 +147,74 @@ describe("after 5 failed sign-ins in 15 minutes", () => {
     setMinute(5);
 
     expect(await signIn(email)).toMatchObject({ reason: "too-many-attempts" });
+  });
+});
+
+// The IP a sign-in counts under, from the request as session.server.ts reads it.
+describe("the IP of the bucket", () => {
+  const forgedAddresses = ["198.51.100.1", "198.51.100.2", "198.51.100.3", "198.51.100.4", "198.51.100.5"];
+
+  async function signInFrom(
+    email: string,
+    request: { connectionIp: string; forwardedFor: string; trustProxy: boolean },
+    given = password,
+  ) {
+    return auth.signIn(await getServerSidePrismaClient(), memoryCookies(), {
+      email,
+      password: given,
+      ip: clientIp(request),
+    });
+  }
+
+  test("without TRUST_PROXY, a new x-forwarded-for on every attempt is still the same bucket", async () => {
+    const { email } = await newAccount();
+    for (const [attempt, forwardedFor] of forgedAddresses.entries()) {
+      setMinute(attempt);
+      await signInFrom(email, { connectionIp: ip, forwardedFor, trustProxy: false }, "battery staple");
+    }
+    setMinute(5);
+
+    expect(await signInFrom(email, { connectionIp: ip, forwardedFor: "192.0.2.77", trustProxy: false })).toMatchObject({
+      reason: "too-many-attempts",
+    });
+  });
+
+  test("with TRUST_PROXY, every client behind the proxy has its own bucket", async () => {
+    const { email, userId } = await newAccount();
+    const proxy = "10.0.0.1";
+    for (let attempt = 0; attempt < 5; attempt++) {
+      setMinute(attempt);
+      await signInFrom(
+        email,
+        { connectionIp: proxy, forwardedFor: "203.0.113.50", trustProxy: true },
+        "battery staple",
+      );
+    }
+    setMinute(5);
+
+    expect(
+      await signInFrom(email, { connectionIp: proxy, forwardedFor: "203.0.113.50", trustProxy: true }),
+    ).toMatchObject({ reason: "too-many-attempts" });
+    const other = await signInFrom(email, { connectionIp: proxy, forwardedFor: "203.0.113.51", trustProxy: true });
+    expect(expectOk(other).user.id).toBe(userId);
+  });
+
+  test("with TRUST_PROXY, addresses the client puts before the proxy's don't change the bucket", async () => {
+    const { email } = await newAccount();
+    const proxy = "10.0.0.1";
+    for (const [attempt, forged] of forgedAddresses.entries()) {
+      setMinute(attempt);
+      await signInFrom(
+        email,
+        { connectionIp: proxy, forwardedFor: `${forged}, 203.0.113.60`, trustProxy: true },
+        "battery staple",
+      );
+    }
+    setMinute(5);
+
+    expect(
+      await signInFrom(email, { connectionIp: proxy, forwardedFor: "192.0.2.77, 203.0.113.60", trustProxy: true }),
+    ).toMatchObject({ reason: "too-many-attempts" });
   });
 });
 

@@ -113,6 +113,8 @@ The committed `.env` file holds every value needed for local development. None o
 
 Postgres listens on host port `55432` instead of `5432` so it doesn't conflict with a Postgres you may already have installed.
 
+`TRUST_PROXY` is not set in development. Set it to `true` only when the app runs behind exactly one reverse proxy that appends the client address to `X-Forwarded-For`: the sign-in attempt limit then counts that address instead of the proxy's. Without it, the header is ignored, since any client can write it.
+
 ### Scripts
 
 | Script                       | What it does                                                                               |

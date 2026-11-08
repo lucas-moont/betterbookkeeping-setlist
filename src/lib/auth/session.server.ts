@@ -1,4 +1,5 @@
-import { deleteCookie, getCookie, getRequestIP, setCookie } from "@tanstack/react-start/server";
+import { deleteCookie, getCookie, getRequestHeader, getRequestIP, setCookie } from "@tanstack/react-start/server";
+import { clientIp } from "./client-ip";
 import { sessionCookieOptions } from "./cookie-options";
 import type { SessionCookies } from "./index";
 
@@ -18,10 +19,13 @@ export function requestSessionCookies(): SessionCookies {
 }
 
 /**
- * The IP the current request came from, for the sign-in attempt limit: the address of the
- * connection itself. A request whose address the server can't see shares one "unknown" bucket per
- * email.
+ * The IP the current request came from, for the sign-in attempt limit (see clientIp). Reads
+ * x-forwarded-for only when TRUST_PROXY is exactly "true".
  */
 export function requestClientIp(): string {
-  return getRequestIP() ?? "unknown";
+  return clientIp({
+    connectionIp: getRequestIP(),
+    forwardedFor: getRequestHeader("x-forwarded-for"),
+    trustProxy: process.env.TRUST_PROXY === "true",
+  });
 }
