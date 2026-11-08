@@ -16,11 +16,12 @@ export default defineConfig({
   // The same specs at two widths. "phone" is an iPhone SE's screen (375×667) in Chromium, below the
   // md breakpoint, so the bottom bar replaces the sidebar (DESIGN.md, Layout). The helpers find the
   // controls at either width. Tests tagged @desktop check the sidebar itself and only run on
-  // "chromium"; the phone layout's own tests set their size and run on both.
+  // "chromium"; tests tagged @phone check the phone layout itself and only run on "phone".
   projects: [
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
+      grepInvert: /@phone/,
     },
     {
       name: "phone",

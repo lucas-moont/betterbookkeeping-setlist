@@ -30,7 +30,7 @@ export function BodyWeightEntries({ entries, onDeleted }: BodyWeightEntriesProps
         ))}
       </ul>
       {entries.length > collapsedCount && (
-        <Button variant="link" size="sm" className="px-0" onClick={() => setShowAll((all) => !all)}>
+        <Button variant="link" size="sm" className="h-11 px-0 sm:h-8" onClick={() => setShowAll((all) => !all)}>
           {showAll ? "Show fewer" : `Show all ${entries.length} entries`}
         </Button>
       )}
@@ -58,7 +58,8 @@ function EntryRow({ entry, onDeleted }: { entry: BodyWeightEntry; onDeleted: (da
         size="icon"
         disabled={deleteMutation.isPending}
         onClick={() => deleteMutation.mutate(entry.date)}
-        className="h-8 w-8 text-slate-400">
+        // 44 px to tap on a phone, like the other rows' buttons.
+        className="h-11 w-11 text-slate-400 sm:h-8 sm:w-8">
         <X className="w-4 h-4" />
       </Button>
     </li>

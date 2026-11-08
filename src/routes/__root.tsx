@@ -175,7 +175,8 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         {config.environment === "development" && (
           <TanStackDevtools
             config={{
-              position: "bottom-left",
+              // Top left, over the wordmark: at the bottom it would cover the phone's bottom bar.
+              position: "top-left",
             }}
             plugins={[
               {

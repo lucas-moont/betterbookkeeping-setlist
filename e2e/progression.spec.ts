@@ -18,20 +18,38 @@ function movementButton(page: Page, name: string) {
   return movementList(page).getByRole("button", { name: new RegExp(`^${name} \\d+ Training Days$`) });
 }
 
+/** Whether the Progression card shows its movement list (from lg) rather than a phone's combobox. */
+function showsList(page: Page) {
+  return (page.viewportSize()?.width ?? 0) >= 1024;
+}
+
+/** Checks the movement the chart is on, in the list or in the combobox, whichever this width shows. */
+async function expectPicked(page: Page, movement: string) {
+  if (showsList(page)) await expect(movementButton(page, movement)).toHaveAttribute("aria-current", "true");
+  else await expect(page.getByRole("combobox", { name: "Movement" })).toHaveValue(movement);
+}
+
+/** The movements to pick from: the list's buttons, or the combobox's options once it's open. */
+async function movementChoices(page: Page) {
+  if (showsList(page)) return movementList(page).getByRole("button");
+  await page.getByRole("combobox", { name: "Movement" }).click();
+  return page.getByRole("listbox", { name: "Movements" }).getByRole("option");
+}
+
 /** The chart, named after the movement and metric it shows. */
 function chart(page: Page, movement: string, metric = "Max Weight") {
   return page.getByRole("img", { name: new RegExp(`^${movement}, ${metric}: `) });
 }
 
 test.describe("Progression", () => {
-  test("should chart the movement with a completed set", { tag: "@desktop" }, async ({ page }) => {
+  test("should chart the movement with a completed set", async ({ page }) => {
     const movement = `Bench Press ${uniqueToken()}`;
     await createMovement(page, movement);
     await logCompletedWorkout(page, { movement, weight: 185, reps: 6 });
 
     await openPage(page, "/workout-history");
 
-    await expect(movementButton(page, movement)).toHaveAttribute("aria-current", "true");
+    await expectPicked(page, movement);
     await expect(chart(page, movement)).toBeVisible();
     // The chart draws in the browser only, so this also checks it rendered after hydration.
     await expect(chart(page, movement).locator(".recharts-line-dots circle")).toHaveCount(1);
@@ -39,7 +57,7 @@ test.describe("Progression", () => {
     await expect(page.getByText("One point per Training Day.")).toBeVisible();
   });
 
-  test("should list only movements with a completed set", { tag: "@desktop" }, async ({ page }) => {
+  test("should list only movements with a completed set", async ({ page }) => {
     const token = uniqueToken();
     const done = `Back Squat ${token}`;
     const skipped = `Lunge ${token}`;
@@ -54,7 +72,7 @@ test.describe("Progression", () => {
 
     await openPage(page, "/workout-history");
 
-    await expect(movementList(page).getByRole("button")).toHaveText([new RegExp(`^${done}\\s*1 Training Days$`)]);
+    await expect(await movementChoices(page)).toHaveText([new RegExp(`^${done}\\s*1 Training Days$`)]);
   });
 
   test("should say there are no Training Days yet before any set is completed", async ({ page }) => {
@@ -64,6 +82,7 @@ test.describe("Progression", () => {
     await expect(page.getByText("Complete a set in a workout and your progress shows up here.")).toBeVisible();
   });
 
+  // The list with its search box is the desktop's picker; the phone's combobox filters in its own test below.
   test(
     "should filter the list as the user types, and chart a movement only once picked",
     { tag: "@desktop" },
@@ -199,6 +218,8 @@ test.describe("Progression", () => {
       );
     });
 
+    // The gap's title only shows where the band is wide enough for it, and its tooltip is hovered here;
+    // the touch-screen test below taps it on a phone.
     test("should shade the time since the last Training Day", { tag: "@desktop" }, async ({ page }) => {
       const movement = `Pull-up ${uniqueToken()}`;
       await createMovement(page, movement);

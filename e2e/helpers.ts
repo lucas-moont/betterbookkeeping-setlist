@@ -171,7 +171,7 @@ export async function createAccount(page: Page, email: string, password: string)
 
 /** Logs out from the signed-in layout and waits until the sign-in page is interactive. */
 export async function signOut(page: Page) {
-  // A button in both navigations (the sidebar's sits inside its /logout link).
+  // A button in both navigations.
   await mainNav(page).getByRole("button", { name: "Log out" }).click();
   await expect(page).toHaveURL(/\/sign-in$/);
   await page.waitForLoadState("networkidle");

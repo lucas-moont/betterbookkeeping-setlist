@@ -20,6 +20,11 @@ const navItems = [
 // Signing out loads /logout as a new page, not a client-side navigation: the reload also empties the
 // query cache, so the next user to sign in on this browser never sees the last one's data.
 const logoutHref = "/logout";
+const signOut = () => window.location.assign(logoutHref);
+
+// The bottom bar's destinations: the sidebar's pages, then the Profile, which the sidebar reaches
+// through its user block.
+const bottomNavItems = [...navItems, { to: "/profile", label: "Profile", short: "Profile", icon: User }] as const;
 
 function RouteComponent() {
   const { user } = Route.useRouteContext();
@@ -28,13 +33,14 @@ function RouteComponent() {
     // scrolls. From md up, a sidebar with the user block always in view; below it, a top bar with the
     // wordmark and a bottom bar with the five destinations (DESIGN.md, Layout).
     <div className="h-dvh flex flex-col bg-slate-50 md:flex-row">
-      <header className="flex h-12 shrink-0 items-center border-b border-slate-200 bg-white px-4 md:hidden">
+      {/* Both bars keep clear of a landscape phone's notch, as the bottom one does of its home indicator. */}
+      <header className="flex h-12 shrink-0 items-center border-b border-slate-200 bg-white pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] md:hidden">
         <img src="/wordmark.svg" alt="Setlist" className="h-5" />
       </header>
       <nav
         aria-label="Main"
         className="hidden w-64 shrink-0 overflow-y-auto bg-white border-r border-slate-200 p-4 md:flex md:flex-col">
-        <img src="/wordmark.svg" alt="Logo" className="h-6 mb-8" />
+        <img src="/wordmark.svg" alt="Setlist" className="h-6 mb-8" />
         <div className="flex flex-col gap-1 flex-1">
           {navItems.map(({ to, label, icon: Icon }) => (
             <Link
@@ -59,12 +65,10 @@ function RouteComponent() {
               <p className="font-medium truncate">{user.name || user.email}</p>
             </div>
           </Link>
-          <a href={logoutHref}>
-            <Button variant="ghost" size="sm" className="w-full justify-start gap-3 text-slate-600">
-              <LogOut className="w-4 h-4" />
-              Log out
-            </Button>
-          </a>
+          <Button variant="ghost" size="sm" onClick={signOut} className="w-full justify-start gap-3 text-slate-600">
+            <LogOut className="w-4 h-4" />
+            Log out
+          </Button>
         </div>
       </nav>
       {/* On phones the bottom padding clears the fixed bar, safe area included. */}
@@ -77,7 +81,7 @@ function RouteComponent() {
 }
 
 const tabClass =
-  "flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/50";
+  "flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/50";
 
 /**
  * The phone navigation: the three pages, the Profile and Log out, fixed to the bottom of the screen
@@ -85,12 +89,11 @@ const tabClass =
  * so it is a button and never active, and it signs out at once, as the sidebar's does.
  */
 function BottomNav() {
-  const items = [...navItems, { to: "/profile", short: "Profile", icon: User }] as const;
   return (
     <nav
       aria-label="Main"
-      className="fixed inset-x-0 bottom-0 z-30 flex border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)] md:hidden">
-      {items.map(({ to, short, icon: Icon }) => (
+      className="fixed inset-x-0 bottom-0 z-30 flex border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] md:hidden">
+      {bottomNavItems.map(({ to, short, icon: Icon }) => (
         <Link key={to} to={to} className={cn(tabClass, "group [&.active]:text-slate-900")}>
           <span className="inline-flex h-7 w-12 items-center justify-center rounded-full group-[.active]:bg-slate-100">
             <Icon aria-hidden="true" className="h-5 w-5" />
@@ -98,7 +101,7 @@ function BottomNav() {
           {short}
         </Link>
       ))}
-      <button type="button" onClick={() => window.location.assign(logoutHref)} className={tabClass}>
+      <button type="button" onClick={signOut} className={tabClass}>
         <span className="inline-flex h-7 w-12 items-center justify-center rounded-full">
           <LogOut aria-hidden="true" className="h-5 w-5" />
         </span>

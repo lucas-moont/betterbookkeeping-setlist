@@ -15,7 +15,7 @@ test.describe("Movements", () => {
       await openPage(page, "/movements");
 
       await page.getByLabel("Movement name").fill(name);
-      await page.getByRole("button", { name: "Add" }).click();
+      await page.getByRole("button", { name: "Add", exact: true }).click();
 
       await expect(page.getByRole("listitem").filter({ hasText: name })).toBeVisible();
     });
@@ -43,7 +43,7 @@ test.describe("Movements", () => {
       const nameField = page.getByLabel("Movement name");
 
       await nameField.fill(`  ${name.toUpperCase()} `);
-      await page.getByRole("button", { name: "Add" }).click();
+      await page.getByRole("button", { name: "Add", exact: true }).click();
 
       // In the form: the message describes the field, unlike a toast.
       await expect(nameField).toHaveAccessibleDescription("You already have a movement with this name");

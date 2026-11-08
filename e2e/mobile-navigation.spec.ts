@@ -1,20 +1,45 @@
-import { test, expect, type Page } from "./fixtures";
-import { createMovement, logCompletedWorkout, openPage, uniqueToken } from "./helpers";
+import { test, expect, type Locator, type Page } from "./fixtures";
+import {
+  addSet,
+  createMovement,
+  logCompletedWorkout,
+  mainNav,
+  openPage,
+  setRows,
+  startWorkout,
+  uniqueToken,
+} from "./helpers";
 
-// Below 768 px a bottom bar replaces the sidebar (DESIGN.md, Layout). The fixture signs up at the
-// desktop size; each test then turns the window into a phone's (iPhone SE).
-const phone = { width: 375, height: 667 };
+// Below 768 px a bottom bar replaces the sidebar (DESIGN.md, Layout). Tests tagged @phone run only
+// on the "phone" project (375×667) and @desktop ones only on "chromium" (playwright.config.ts).
 
-/** The navigation on screen: the bottom bar on a phone, the sidebar on a desktop. */
-function mainNav(page: Page) {
-  return page.getByRole("navigation", { name: "Main" });
+/** Fails, naming the page, if the page or its content is wider than the screen. */
+async function expectNoSidewaysScroll(page: Page, where: string) {
+  const widths = await page.evaluate(() => {
+    const main = document.querySelector("main")!;
+    return {
+      screen: document.documentElement.clientWidth,
+      page: document.documentElement.scrollWidth,
+      content: main.scrollWidth,
+      contentBox: main.clientWidth,
+    };
+  });
+  expect(widths.page, `${where}: the page is as wide as the screen`).toBe(widths.screen);
+  // Wide content (the history table) scrolls inside its own region, never the page.
+  expect(widths.content, `${where}: the content fits its column`).toBe(widths.contentBox);
 }
 
-test.describe("Bottom navigation on phones", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.setViewportSize(phone);
-  });
+/** Fails, naming the control, unless it is 44 px tall with 16 px text: easy to tap, and no iOS zoom on focus. */
+async function expectTouchSize(control: Locator, name: string) {
+  const { height, fontSize } = await control.evaluate((el) => ({
+    height: el.getBoundingClientRect().height,
+    fontSize: getComputedStyle(el).fontSize,
+  }));
+  expect(height, `${name}: 44 px tall`).toBe(44);
+  expect(fontSize, `${name}: 16 px text`).toBe("16px");
+}
 
+test.describe("Bottom navigation on phones", { tag: "@phone" }, () => {
   test("shows the five destinations and marks the page you're on", async ({ page }) => {
     await openPage(page, "/current-workout");
     const nav = mainNav(page);
@@ -59,28 +84,54 @@ test.describe("Bottom navigation on phones", () => {
   });
 });
 
-test("no page scrolls sideways on a phone", async ({ page }) => {
-  await page.setViewportSize(phone);
-  const movement = `Romanian Deadlift With Pause ${uniqueToken()}`;
-  await createMovement(page, movement);
-  await logCompletedWorkout(page, { movement, weight: 225, reps: 8 });
+// The issue's "done when", on a phone: logging, un-completing and changing a group, with nothing
+// wider than the screen and fields that don't zoom.
+test.describe("Phone flows", { tag: "@phone" }, () => {
+  test("logging three sets and un-completing one, with touch-sized fields", async ({ page }) => {
+    const movement = `Romanian Deadlift With Pause ${uniqueToken()}`;
+    await createMovement(page, movement);
+    await startWorkout(page);
+    await expectNoSidewaysScroll(page, "the started workout");
+    await expectTouchSize(page.getByLabel("Movement", { exact: true }), "Movement");
+    await expectTouchSize(page.getByLabel("Weight", { exact: true }), "Weight");
+    await expectTouchSize(page.getByLabel("Reps"), "Reps");
+    await expectTouchSize(page.getByRole("button", { name: /^Add( \d+ sets)?$/ }), "Add");
 
-  for (const path of ["/current-workout", "/workout-history", "/movements", "/profile"]) {
-    await openPage(page, path);
-    // Wide content (the history table) scrolls inside its own region, never the page.
-    const widths = await page.evaluate(() => {
-      const main = document.querySelector("main")!;
-      return [document.documentElement.scrollWidth, main.scrollWidth, main.clientWidth];
-    });
-    expect(widths, path).toEqual([phone.width, widths[2], widths[2]]);
-  }
-});
+    await addSet(page, { movement, weight: 225, reps: 8, count: 3 });
+    await page.getByRole("checkbox", { name: `Completed: ${movement}, set 2, 225 lb × 8` }).click();
 
-test.describe("Profile and fields on phones", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.setViewportSize(phone);
+    await expect(setRows(page, movement).getByRole("checkbox", { checked: false })).toHaveCount(1);
+    await expectNoSidewaysScroll(page, "three sets, one planned");
   });
 
+  test("changing a movement's group from its row", async ({ page }) => {
+    const movement = `Bench Press ${uniqueToken()}`;
+    await createMovement(page, movement);
+    await openPage(page, "/movements");
+    const group = page.getByLabel(`Muscle group for ${movement}`);
+    await expectTouchSize(group, "the row's group");
+
+    await group.selectOption({ label: "Shoulders" });
+
+    await expect(page.getByRole("group", { name: "Filter by muscle group" })).toContainText("Shoulders");
+    await openPage(page, "/movements");
+    await expect(page.getByLabel(`Muscle group for ${movement}`)).toHaveValue("SHOULDERS");
+    await expectNoSidewaysScroll(page, "/movements after the change");
+  });
+
+  test("no page scrolls sideways", async ({ page }) => {
+    const movement = `Romanian Deadlift With Pause ${uniqueToken()}`;
+    await createMovement(page, movement);
+    await logCompletedWorkout(page, { movement, weight: 225, reps: 8 });
+
+    for (const path of ["/current-workout", "/workout-history", "/movements", "/profile"]) {
+      await openPage(page, path);
+      await expectNoSidewaysScroll(page, path);
+    }
+  });
+});
+
+test.describe("Profile and fields on phones", { tag: "@phone" }, () => {
   test("the Profile says who is signed in", async ({ page }) => {
     await openPage(page, "/profile");
 
@@ -90,24 +141,17 @@ test.describe("Profile and fields on phones", () => {
     await expect(main.getByText("E2E User", { exact: true })).toBeVisible();
   });
 
-  // 44 px to tap, and 16 px text so iOS doesn't zoom in when a field gets the focus.
   test("the body weight form and Complete are phone-sized", async ({ page }) => {
     await openPage(page, "/profile");
-    for (const control of [
-      page.getByLabel("Date"),
-      page.getByLabel("Weight in pounds"),
-      page.getByRole("button", { name: "Record" }),
-    ]) {
-      expect(
-        await control.evaluate((el) => [el.getBoundingClientRect().height, getComputedStyle(el).fontSize]),
-      ).toEqual([44, "16px"]);
-    }
+    await expectTouchSize(page.getByLabel("Date"), "Date");
+    await expectTouchSize(page.getByLabel("Weight in pounds"), "Weight in pounds");
+    await expectTouchSize(page.getByRole("button", { name: "Record" }), "Record");
 
     await openPage(page, "/current-workout");
     await page.getByRole("button", { name: "Start Workout" }).click();
     const complete = page.getByRole("button", { name: "Complete", exact: true });
     await expect(complete).toBeVisible();
-    expect((await complete.boundingBox())!.height).toBe(44);
+    expect((await complete.boundingBox())!.height, "Complete: 44 px tall").toBe(44);
   });
 });
 
@@ -124,5 +168,5 @@ test("the desktop Profile leaves who is signed in to the sidebar", { tag: "@desk
   await openPage(page, "/profile");
 
   await expect(page.locator("main").getByText("Logged in as")).toBeHidden();
-  await expect(page.getByRole("navigation", { name: "Main" }).getByText("Logged in as")).toBeVisible();
+  await expect(mainNav(page).getByText("Logged in as")).toBeVisible();
 });

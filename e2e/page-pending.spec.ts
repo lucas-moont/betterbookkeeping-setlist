@@ -4,8 +4,11 @@ import { navLink, openPage } from "./helpers";
 // A slow page shows an outline of itself while its loader runs, after the router's one-second wait;
 // a fast one never shows it.
 
+/** What the outline says to a screen reader while it's on screen. */
+const loadingText = "Loading…";
+
 function pending(page: Page) {
-  return page.locator('main [aria-busy="true"]');
+  return page.getByRole("status").filter({ hasText: loadingText });
 }
 
 test.describe("Loading between pages", () => {
@@ -19,27 +22,26 @@ test.describe("Loading between pages", () => {
 
     await navLink(page, "history").click();
 
-    await expect(pending(page)).toBeVisible();
+    await expect(pending(page)).toBeAttached();
     await expect(page.getByRole("heading", { name: "Workout History" })).toBeVisible({ timeout: 10_000 });
     await expect(pending(page)).toHaveCount(0);
+    // No delayed request outlives the test.
+    await page.unroute("**/_serverFn/**", { behavior: "wait" });
   });
 
   test("a fast page never shows it", async ({ page }) => {
     await openPage(page, "/current-workout");
-    // Records whether the outline was ever on screen during the navigation.
-    await page.evaluate(() => {
-      const seen = { pending: false };
-      (window as unknown as { __pending: typeof seen }).__pending = seen;
+    // Records, in the page, whether the outline's status ever said it was loading.
+    await page.evaluate((text) => {
       new MutationObserver(() => {
-        if (document.querySelector('main [aria-busy="true"]')) seen.pending = true;
-      }).observe(document.body, { childList: true, subtree: true });
-    });
+        const statuses = [...document.querySelectorAll('[role="status"]')];
+        if (statuses.some((status) => status.textContent === text)) document.body.dataset.sawPending = "true";
+      }).observe(document.body, { childList: true, subtree: true, characterData: true });
+    }, loadingText);
 
     await navLink(page, "movements").click();
 
     await expect(page.getByRole("heading", { name: "Movements", level: 1 })).toBeVisible();
-    expect(
-      await page.evaluate(() => (window as unknown as { __pending: { pending: boolean } }).__pending.pending),
-    ).toBe(false);
+    await expect(page.locator("body")).not.toHaveAttribute("data-saw-pending");
   });
 });
