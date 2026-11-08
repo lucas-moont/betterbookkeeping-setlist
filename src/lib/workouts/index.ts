@@ -8,6 +8,7 @@ import { todayIsoDate } from "@/lib/format";
 import { ensureOwned, movementSelect, type Movement } from "@/lib/movements";
 import { muscleGroups, type MuscleGroup } from "@/lib/movements/muscle-group";
 import { load } from "@/lib/weight";
+import { historyPageSize, maxHistoryPageSize, type HistoryCursor } from "./history-page";
 import type { SetDraft } from "./set-draft";
 
 // The workouts module (ADR 0010): the rules of the Current Workout and of the history, in one place.
@@ -381,16 +382,45 @@ async function discard(db: DbClient, userId: string, workoutId: string): Promise
   return { ok: true };
 }
 
-/** The user's Completed Workouts with their Sets, most recently completed first. */
-export const history = createServerOnlyFn(async (db: DbClient, userId: string): Promise<CompletedWorkout[]> => {
-  const completed = await db.workout.findMany({
-    where: { userId, completedAt: { not: null } },
-    orderBy: { completedAt: "desc" },
-    select: workoutSelect,
-  });
-  // The where clause guarantees completedAt is set.
-  return completed.map((workout) => ({ ...toWorkout(workout), completedAt: workout.completedAt as Date }));
-});
+export type { HistoryCursor } from "./history-page";
+
+/**
+ * One page of the user's Completed Workouts with their Sets, most recently completed first, and the
+ * cursor of the next page (null on the last one). Workouts completed in the same millisecond are
+ * ordered by id, so a page boundary between them neither skips one nor repeats one.
+ */
+export const history = createServerOnlyFn(
+  async (
+    db: DbClient,
+    userId: string,
+    { cursor, limit = historyPageSize }: { cursor?: HistoryCursor; limit?: number } = {},
+  ): Promise<{ workouts: CompletedWorkout[]; nextCursor: HistoryCursor | null }> => {
+    // The server function validates limit too; a take of 0 would always look like a last page, and
+    // a negative one would read from the oldest workout.
+    const size = Math.min(Math.max(Math.trunc(limit) || 1, 1), maxHistoryPageSize);
+    const after = cursor && new Date(cursor.completedAt);
+    const rows = await db.workout.findMany({
+      where: {
+        userId,
+        // With a cursor, the range on completedAt lets Postgres seek the (userId, completedAt) index
+        // to it instead of reading from the newest workout; the OR only settles the tie on id.
+        completedAt: after ? { lte: after } : { not: null },
+        ...(after && { OR: [{ completedAt: { lt: after } }, { completedAt: after, id: { lt: cursor.id } }] }),
+      },
+      orderBy: [{ completedAt: "desc" }, { id: "desc" }],
+      // One more than the page, to know whether another page follows.
+      take: size + 1,
+      select: workoutSelect,
+    });
+    // The where clause guarantees completedAt is set.
+    const workouts = rows
+      .slice(0, size)
+      .map((workout) => ({ ...toWorkout(workout), completedAt: workout.completedAt as Date }));
+    const last = workouts.at(-1);
+    const nextCursor = rows.length > size && last ? { completedAt: last.completedAt.toISOString(), id: last.id } : null;
+    return { workouts, nextCursor };
+  },
+);
 
 /**
  * Deletes the user's completed workouts with these ids, with their Sets. Ids of other users'

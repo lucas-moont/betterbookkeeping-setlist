@@ -35,7 +35,8 @@ export const currentWorkoutQueryOptions = () =>
 export const workoutHistoryQueryOptions = () =>
   queryOptions({
     queryKey: workoutKeys.history,
-    queryFn: () => getWorkoutHistoryServerFn(),
+    // The first page only, until the screen loads more.
+    queryFn: () => getWorkoutHistoryServerFn({ data: {} }),
   });
 
 export const startWorkoutMutationOptions = () =>

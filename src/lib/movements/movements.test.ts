@@ -210,13 +210,13 @@ describe("update", () => {
     const logged = (sets: workouts.WorkoutSet[]) =>
       sets.map(({ id, reps, weight, load, completed }) => ({ id, reps, weight, load, completed }));
     const before = {
-      completed: logged((await workouts.history(db, user.id))[0].sets),
+      completed: logged((await workouts.history(db, user.id)).workouts[0].sets),
       current: logged((await workouts.get(db, user.id))!.sets),
     };
 
     expectOk(await movements.update(db, user.id, movement.id, { isBodyWeight: false }));
 
-    expect(logged((await workouts.history(db, user.id))[0].sets)).toEqual(before.completed);
+    expect(logged((await workouts.history(db, user.id)).workouts[0].sets)).toEqual(before.completed);
     expect(logged((await workouts.get(db, user.id))!.sets)).toEqual(before.current);
     expect(before.completed).toEqual([
       { id: expect.any(String), reps: 8, weight: 172.4, load: 172.4, completed: true },

@@ -22,7 +22,9 @@ export const Route = createFileRoute("/__index/_layout/workout-history/")({
 });
 
 function WorkoutHistoryPage() {
-  const { data: workouts } = useSuspenseQuery(workoutHistoryQueryOptions());
+  const {
+    data: { workouts },
+  } = useSuspenseQuery(workoutHistoryQueryOptions());
 
   return (
     <div className="space-y-6">

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { toServerResult } from "@/lib/error-codes";
 import { readTimeZone } from "@/lib/time-zone";
 import * as workouts from "./index";
+import { historyCursorSchema, historyPageSizeSchema } from "./history-page";
 import { setDraftSchema, type SetDraft } from "./set-draft";
 
 // Thin adapters over the workouts module (ADR 0010): auth, input validation, the module call,
@@ -70,11 +71,20 @@ export const deleteSetServerFn = createServerFn({ method: "POST" })
     return toServerResult(await workouts.removeSet(await getServerSidePrismaClient(), context.user.id, data.setId));
   });
 
+// A page of the history: the cursor the previous page returned, and how many workouts a page shows.
+const historyPageSchema = z.object({
+  cursor: historyCursorSchema.optional(),
+  limit: historyPageSizeSchema.optional(),
+});
+
 export const getWorkoutHistoryServerFn = createServerFn()
   .middleware([authMiddleware])
-  .handler(async ({ context }) => {
-    return workouts.history(await getServerSidePrismaClient(), context.user.id);
-  });
+  .inputValidator(historyPageSchema)
+  .handler(
+    async ({ context, data }: { context: { user: { id: string } }; data: z.infer<typeof historyPageSchema> }) => {
+      return workouts.history(await getServerSidePrismaClient(), context.user.id, data);
+    },
+  );
 
 export const deleteWorkoutsServerFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
