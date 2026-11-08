@@ -1,5 +1,5 @@
 import { deleteCookie, getCookie, getRequestHeader, getRequestIP, setCookie } from "@tanstack/react-start/server";
-import { clientIp } from "./client-ip";
+import { clientIp, deployWarnings } from "./client-ip";
 import { sessionCookieOptions } from "./cookie-options";
 import type { SessionCookies } from "./index";
 
@@ -18,14 +18,22 @@ export function requestSessionCookies(): SessionCookies {
   };
 }
 
+// Warnings already printed by this process: a misconfiguration repeats on every request.
+const warned = new Set<string>();
+
 /**
  * The IP the current request came from, for the sign-in attempt limit (see clientIp). Reads
- * x-forwarded-for only when TRUST_PROXY is exactly "true".
+ * x-forwarded-for only when TRUST_PROXY is exactly "true", and warns once in the server log when
+ * the deploy looks misconfigured (see deployWarnings).
  */
 export function requestClientIp(): string {
-  return clientIp({
-    connectionIp: getRequestIP(),
-    forwardedFor: getRequestHeader("x-forwarded-for"),
-    trustProxy: process.env.TRUST_PROXY === "true",
-  });
+  const forwardedFor = getRequestHeader("x-forwarded-for");
+  const trustProxy = process.env.TRUST_PROXY === "true";
+  const ip = clientIp({ connectionIp: getRequestIP(), forwardedFor, trustProxy });
+  for (const warning of deployWarnings({ forwardedFor, trustProxy, ip })) {
+    if (warned.has(warning)) continue;
+    warned.add(warning);
+    console.warn(warning);
+  }
+  return ip;
 }

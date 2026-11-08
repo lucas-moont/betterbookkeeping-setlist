@@ -15,7 +15,7 @@ export const errorMessages = {
   // auth
   "invalid-credentials": "Invalid email or password",
   "email-taken": "An account with this email already exists",
-  "too-many-attempts": (minutes: number) =>
+  "too-many-attempts": ({ retryAfterMinutes: minutes }: { retryAfterMinutes: number }) =>
     `Too many sign-in attempts. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`,
   // workouts
   "empty-workout": "This workout has no completed sets",
@@ -24,44 +24,36 @@ export const errorMessages = {
 
 export type ErrorCode = keyof typeof errorMessages;
 
-/**
- * The data a failure carries besides its code, for the codes whose message is built from it. A
- * code missing here carries nothing, and its message is fixed text.
- */
-export type ErrorDetails = {
-  "too-many-attempts": { retryAfterMinutes: number };
-};
+// A code whose message is a function carries that function's argument as its details, so the two
+// are one definition and can't drift. A code with fixed text carries nothing.
+type DetailsOf<E extends ErrorCode> = (typeof errorMessages)[E] extends (details: infer D) => string ? D : unknown;
 
-type DetailsOf<E extends ErrorCode> = E extends keyof ErrorDetails ? ErrorDetails[E] : unknown;
-
-/** One failure per code (the conditional distributes over E), each with its own details. */
-type Failure<E extends ErrorCode> = E extends ErrorCode ? { ok: false; reason: E } & DetailsOf<E> : never;
-
-type ServerFailure<E extends ErrorCode> = E extends ErrorCode
-  ? { success: false; code: E; error: string } & DetailsOf<E>
-  : never;
+/** A module's failure for one code (the conditional distributes over a union of codes), with its details. */
+export type Failure<E extends ErrorCode> = E extends ErrorCode ? { ok: false; reason: E } & DetailsOf<E> : never;
 
 /** What a domain module returns from an operation that can fail: the data, or the reason it didn't happen. */
 export type Result<T extends object, E extends ErrorCode> = ({ ok: true } & T) | Failure<E>;
 
 /**
- * What a server function sends to the browser. `code` is stable, so the client can branch on it,
- * and a failure's details come along beside it.
+ * What a server function sends to the browser. `code` is stable, so the client can branch on it.
+ * A failure's details only go into `error`, never beside it.
  */
-export type ServerResult<T extends object, E extends ErrorCode> = ({ success: true } & T) | ServerFailure<E>;
+export type ServerResult<T extends object, E extends ErrorCode> =
+  | ({ success: true } & T)
+  | { success: false; code: E; error: string };
 
 function messageOf(failure: Failure<ErrorCode>): string {
-  return failure.reason === "too-many-attempts"
-    ? errorMessages[failure.reason](failure.retryAfterMinutes)
-    : errorMessages[failure.reason];
+  const message = errorMessages[failure.reason];
+  // TypeScript can't tie a code's message to that same code's failure, but DetailsOf makes the
+  // failure carry exactly what the message function takes.
+  return typeof message === "function" ? (message as (details: Failure<ErrorCode>) => string)(failure) : message;
 }
 
 /** Translates a module Result into the `{ success, ... }` shape every server function returns. */
 export function toServerResult<T extends object, E extends ErrorCode>(result: Result<T, E>): ServerResult<T, E> {
   if (!result.ok) {
-    const failure = result as Failure<ErrorCode>;
-    const { ok: _ok, reason, ...details } = failure;
-    return { success: false, code: reason, error: messageOf(failure), ...details } as ServerResult<T, E>;
+    // Failure<E> is a conditional type, so TypeScript only sees its reason as some ErrorCode.
+    return { success: false, code: result.reason as E, error: messageOf(result) };
   }
   const { ok: _ok, ...data } = result;
   return { success: true, ...(data as T) };

@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createServerOnlyFn } from "@tanstack/react-start";
 import type { DbClient } from "@/lib/db.server";
-import type { Result } from "@/lib/error-codes";
+import type { Failure, Result } from "@/lib/error-codes";
 import { normalizeEmail } from "./email";
 import { hashPassword, verifyPassword } from "./password";
 
@@ -102,36 +102,44 @@ export const register = createServerOnlyFn(
   },
 );
 
-// The sign-in attempt limit: at most this many failed sign-ins per email and IP in the window.
+// The sign-in attempt limit: at most this many Failed Sign-ins per email and IP in the window.
 // Only failures are stored, and only for the window, so the table stays small.
+const minuteMs = 60 * 1000;
 const maxFailures = 5;
-const attemptWindowMs = 15 * 60 * 1000;
+const attemptWindowMs = 15 * minuteMs;
 
-type TooManyAttempts = { ok: false; reason: "too-many-attempts"; retryAfterMinutes: number };
+/** What the attempt limit counts under: the normalized email and the client's IP (see clientIp). */
+type Bucket = { emailKey: string; ip: string };
 
-/**
- * Refuses a sign-in whose email and IP already have maxFailures failures in the window, saying in
- * how many minutes it opens again. First deletes every failure older than the window, of every
- * email: as for Sessions (ADR 0009), there is no scheduled cleanup.
- */
-async function refuseOverLimit(db: DbClient, emailKey: string, ip: string, now: Date): Promise<TooManyAttempts | null> {
-  const windowStart = new Date(now.getTime() - attemptWindowMs);
-  await db.failedSignIn.deleteMany({ where: { createdAt: { lte: windowStart } } });
-  const failures = await db.failedSignIn.findMany({
-    where: { emailKey, ip, createdAt: { gt: windowStart } },
+/** The bucket's Failed Sign-ins still in the window, oldest first. */
+async function failuresInWindow(db: DbClient, bucket: Bucket, now: Date): Promise<Date[]> {
+  const rows = await db.failedSignIn.findMany({
+    where: { ...bucket, createdAt: { gt: new Date(now.getTime() - attemptWindowMs) } },
     orderBy: { createdAt: "asc" },
     select: { createdAt: true },
   });
-  if (failures.length < maxFailures) return null;
+  return rows.map((row) => row.createdAt);
+}
 
-  // Refused attempts aren't stored, or trying again would push the wait out forever. So it opens
-  // once only maxFailures - 1 failures are left in the window: when the one at this index leaves.
-  const opensAt = failures[failures.length - maxFailures]!.createdAt.getTime() + attemptWindowMs;
-  return {
-    ok: false,
-    reason: "too-many-attempts",
-    retryAfterMinutes: Math.max(1, Math.ceil((opensAt - now.getTime()) / 60_000)),
-  };
+/**
+ * The refusal, with the minutes until the bucket opens again. Refused sign-ins aren't stored, or
+ * trying again would push the wait out forever, so it opens once only maxFailures - 1 failures are
+ * left in the window: when the one at index length - maxFailures leaves. With fewer stored (a
+ * burst that refused itself, see signIn), it opens as soon as anything does: in a minute.
+ */
+function tooManyAttempts(failures: Date[], now: Date): Failure<"too-many-attempts"> {
+  const freeing = failures[failures.length - maxFailures];
+  const msLeft = freeing ? freeing.getTime() + attemptWindowMs - now.getTime() : 0;
+  return { ok: false, reason: "too-many-attempts", retryAfterMinutes: Math.max(1, Math.ceil(msLeft / minuteMs)) };
+}
+
+/**
+ * Deletes every Failed Sign-in that has left the window, of every email: as for Sessions (ADR 0009)
+ * there is no scheduled cleanup, and only this keeps the rows of a credential-stuffing run's
+ * one-off emails from piling up (ADR 0012). The createdAt index makes it a range delete.
+ */
+async function deleteExpiredFailures(db: DbClient, now: Date) {
+  await db.failedSignIn.deleteMany({ where: { createdAt: { lte: new Date(now.getTime() - attemptWindowMs) } } });
 }
 
 // Verified when no account matches, so an unknown email takes as long as a wrong password. The
@@ -160,9 +168,14 @@ async function checkCredentials(db: DbClient, emailKey: string, password: string
  * invalid-credentials after the same argon2 work, so neither the answer nor its timing says which
  * one was wrong. register's email-taken does tell that an account exists: a sign-up form has to.
  *
- * After 5 failures for the same email and IP in 15 minutes, it returns too-many-attempts with the
- * minutes to wait, before any argon2 work, even for the right password. Emails with no account
- * count the same way. A successful sign-in clears that email and IP's failures.
+ * After 5 Failed Sign-ins for the same email and IP in 15 minutes, it returns too-many-attempts
+ * with the minutes to wait, before any argon2 work, even for the right password. Emails with no
+ * account count the same way. A successful sign-in clears that email and IP's failures.
+ *
+ * The failure is stored before the password is checked, and counted with it (ADR 0012): counting
+ * first and storing after argon2 would let every request of a parallel burst read "fewer than 5"
+ * and get its password checked. db must not be a transaction, or the other requests couldn't see
+ * the row in time.
  */
 export const signIn = createServerOnlyFn(
   async (
@@ -170,19 +183,31 @@ export const signIn = createServerOnlyFn(
     cookies: SessionCookies,
     { email, password, ip }: { email: string; password: string; ip: string },
   ): Promise<Result<{ user: SessionUser }, "invalid-credentials" | "too-many-attempts">> => {
-    const emailKey = normalizeEmail(email);
+    const bucket: Bucket = { emailKey: normalizeEmail(email), ip };
     // From this process's clock, not the database default, like every time the module compares.
     const now = new Date();
-    const refusal = await refuseOverLimit(db, emailKey, ip, now);
-    if (refusal) return refusal;
 
-    const user = await checkCredentials(db, emailKey, password);
-    if (!user) {
-      await db.failedSignIn.create({ data: { emailKey, ip, createdAt: now } });
-      return { ok: false, reason: "invalid-credentials" };
+    // The cheap refusal: one read, no write. It's the path a flood of attempts takes.
+    const stored = await failuresInWindow(db, bucket, now);
+    if (stored.length >= maxFailures) return tooManyAttempts(stored, now);
+
+    // Stored as a failure until the password proves otherwise, then counted with every request
+    // that got this far at the same time. Past the limit, this one takes its row back and refuses.
+    await deleteExpiredFailures(db, now);
+    const attempt = await db.failedSignIn.create({ data: { ...bucket, createdAt: now }, select: { id: true } });
+    const counted = await db.failedSignIn.count({
+      where: { ...bucket, createdAt: { gt: new Date(now.getTime() - attemptWindowMs) } },
+    });
+    if (counted > maxFailures) {
+      await db.failedSignIn.deleteMany({ where: { id: attempt.id } });
+      return tooManyAttempts(await failuresInWindow(db, bucket, now), now);
     }
 
-    await db.failedSignIn.deleteMany({ where: { emailKey, ip } });
+    const user = await checkCredentials(db, bucket.emailKey, password);
+    if (!user) return { ok: false, reason: "invalid-credentials" };
+
+    // Clears this sign-in's own row too.
+    await db.failedSignIn.deleteMany({ where: bucket });
     // There is no scheduled cleanup (ADR 0009): a Session nobody reads again is deleted here.
     await db.session.deleteMany({ where: { userId: user.id, expiresAt: { lte: now } } });
     await startSession(db, cookies, user.id);

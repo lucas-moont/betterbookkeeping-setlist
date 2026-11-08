@@ -31,12 +31,12 @@ describe("toServerResult", () => {
 });
 
 describe("toServerResult for too-many-attempts", () => {
-  test("builds the message from the minutes and passes them through", () => {
-    expect(toServerResult({ ok: false, reason: "too-many-attempts", retryAfterMinutes: 9 })).toEqual({
+  // The minutes are already in the message, and nothing else from a failure reaches the browser.
+  test("builds the message from the minutes, and sends only code and message", () => {
+    expect(toServerResult({ ok: false, reason: "too-many-attempts", retryAfterMinutes: 9 })).toStrictEqual({
       success: false,
       code: "too-many-attempts",
       error: "Too many sign-in attempts. Try again in 9 minutes.",
-      retryAfterMinutes: 9,
     });
   });
 
