@@ -249,6 +249,7 @@ describe("signOut", () => {
     const db = await getServerSidePrismaClient();
     const cookies = memoryCookies();
     expectOk(await auth.register(db, cookies, newAccount()));
+    expect(await auth.currentUser(db, cookies)).not.toBeNull();
 
     expectOk(await auth.signOut(db, cookies));
 

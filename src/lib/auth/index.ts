@@ -22,16 +22,26 @@ export type SessionCookies = {
 
 const sessionUserSelect = { id: true, email: true, name: true } as const;
 
-const dayMs = 24 * 60 * 60 * 1000;
-const sessionLifetimeMs = 15 * dayMs;
+const daySeconds = 24 * 60 * 60;
+const sessionLifetimeSeconds = 15 * daySeconds;
 // Renewing only when less than this is left means at most one renewal a day, so reading the
 // session doesn't turn into a write on every request, and no "last renewed" column is needed.
-const renewWhenLeftMs = 14 * dayMs;
+const renewWhenLeftMs = 14 * daySeconds * 1000;
 
 // Only the hash is stored, so a copy of the Session table can't be used to sign in. The token is
 // 32 random bytes, so a fast unsalted hash is enough: there's nothing to guess.
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
+}
+
+/**
+ * Gives a Session the full lifetime from now: `save` writes the new expiresAt, then the cookie gets
+ * the same lifetime as its max age. Starting and renewing both go through here, so the row and the
+ * cookie can't expire on different days.
+ */
+async function extendSession(cookies: SessionCookies, token: string, save: (expiresAt: Date) => Promise<unknown>) {
+  await save(new Date(Date.now() + sessionLifetimeSeconds * 1000));
+  cookies.set(token, sessionLifetimeSeconds);
 }
 
 /**
@@ -43,10 +53,9 @@ async function startSession(db: DbClient, cookies: SessionCookies, userId: strin
   if (previous) await db.session.deleteMany({ where: { tokenHash: hashToken(previous) } });
 
   const token = randomBytes(32).toString("base64url");
-  await db.session.create({
-    data: { tokenHash: hashToken(token), userId, expiresAt: new Date(Date.now() + sessionLifetimeMs) },
-  });
-  cookies.set(token, sessionLifetimeMs / 1000);
+  await extendSession(cookies, token, (expiresAt) =>
+    db.session.create({ data: { tokenHash: hashToken(token), userId, expiresAt } }),
+  );
 }
 
 /**
@@ -92,17 +101,17 @@ export const signIn = createServerOnlyFn(
     cookies: SessionCookies,
     { email, password }: { email: string; password: string },
   ): Promise<Result<{ user: SessionUser }, "invalid-credentials">> => {
-    const row = await db.user.findUnique({
+    const account = await db.user.findUnique({
       where: { email: normalizeEmail(email) },
       select: { ...sessionUserSelect, password: true },
     });
-    if (!row) {
+    if (!account) {
       await verifyPassword(await (dummyPasswordHash ??= hashPassword(randomBytes(32).toString("base64url"))), password);
       return { ok: false, reason: "invalid-credentials" };
     }
-    if (!(await verifyPassword(row.password, password))) return { ok: false, reason: "invalid-credentials" };
+    if (!(await verifyPassword(account.password, password))) return { ok: false, reason: "invalid-credentials" };
 
-    const { password: _password, ...user } = row;
+    const { password: _password, ...user } = account;
     // There is no scheduled cleanup (ADR 0009): a Session nobody reads again is deleted here.
     await db.session.deleteMany({ where: { userId: user.id, expiresAt: { lte: new Date() } } });
     await startSession(db, cookies, user.id);
@@ -137,20 +146,17 @@ export const currentUser = createServerOnlyFn(
     });
     if (!session) return null;
 
-    const now = Date.now();
-    const left = session.expiresAt.getTime() - now;
+    const msLeft = session.expiresAt.getTime() - Date.now();
     // deleteMany and updateMany, not delete and update: a concurrent request may have removed the
     // row already (another read of this expired Session, or a sign-out), and that isn't an error.
-    if (left <= 0) {
+    if (msLeft <= 0) {
       await db.session.deleteMany({ where: { id: session.id } });
       return null;
     }
-    if (left < renewWhenLeftMs) {
-      await db.session.updateMany({
-        where: { id: session.id },
-        data: { expiresAt: new Date(now + sessionLifetimeMs) },
-      });
-      cookies.set(token, sessionLifetimeMs / 1000);
+    if (msLeft < renewWhenLeftMs) {
+      await extendSession(cookies, token, (expiresAt) =>
+        db.session.updateMany({ where: { id: session.id }, data: { expiresAt } }),
+      );
     }
     return session.user;
   },
