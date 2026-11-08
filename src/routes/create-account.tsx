@@ -29,7 +29,6 @@ function CreateAccountPage() {
 
     try {
       const result = await createAccountServerFn({ data: { email, name, password } });
-      console.log("Result", result);
       if (result.success) {
         router.navigate({ to: "/" });
       } else {

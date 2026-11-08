@@ -1,7 +1,6 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { getServerSidePrismaClient } from "@/lib/db.server";
-import { migrationSqlPath } from "@/test/migrations/migration-folders";
+import { runMigrationFunction, whitespaceAndCaseInputs } from "@/test/migrations/migration-functions";
 import { movementNameKey, movementNameSchema } from "./name";
 
 describe("movementNameSchema", () => {
@@ -33,49 +32,17 @@ describe("movementNameKey", () => {
   });
 
   // The migration computes the same key in SQL for the existing movements (ADR 0001). If the two
-  // drifted apart, a migrated movement and a new one with the same name could both exist. The
-  // test runs the functions from the migration file itself, so it checks what the migration runs.
+  // drifted apart, a migrated movement and a new one with the same name could both exist.
   test("gives the same key as the SQL in the migration", async () => {
-    const db = await getServerSidePrismaClient();
-    const names = [
-      "Bench Press",
-      "  Back Squat  ",
-      "\tPull-up\n",
-      "\r\fDips\v",
-      "Overhead  Press",
-      // No-break and other Unicode spaces, as pasted from a web page or a phone keyboard.
-      `${String.fromCharCode(0xa0)}Sumo Deadlift${String.fromCharCode(0xa0)}`,
-      `${String.fromCharCode(0x2003, 0x3000)}Front Squat${String.fromCharCode(0xfeff, 0x202f)}`,
-      `Hip${String.fromCharCode(0xa0)}Thrust`,
-      // Not whitespace for JavaScript, so it stays in the key, in SQL too.
-      `${String.fromCharCode(0x85)}Lunge${String.fromCharCode(0x180e)}`,
-      // Letters whose lower case differs between libc and the Unicode rules JavaScript follows.
-      "ÉLÉVATION LATÉRALE",
-      "ELEVAÇÃO PÉLVICA",
-      "ΚΑΘΙΣΜΑΤΑ ΜΕ ΑΛΤΗΡΕΣ",
-      "İNCLINE PRESS",
-      "KREUZHEBEN MIT GROẞER LAST",
-    ];
+    const names = ["Bench Press", "Overhead  Press", ...whitespaceAndCaseInputs];
 
-    // pg_temp functions live in one connection, so the test pins one with a transaction.
-    const keys = await db.$transaction(async (tx) => {
-      for (const statement of migrationNameFunctions()) await tx.$executeRawUnsafe(statement);
-      const rows = [];
-      for (const name of names) {
-        const [{ key }] = await tx.$queryRaw<{ key: string }[]>`SELECT pg_temp.name_key(${name}) AS key`;
-        rows.push(key);
-      }
-      return rows;
-    });
+    const keys = await runMigrationFunction(
+      await getServerSidePrismaClient(),
+      "movements_owned_by_user",
+      "name_key",
+      names,
+    );
 
     expect(keys).toEqual(names.map(movementNameKey));
   });
 });
-
-/** The CREATE FUNCTION statements of the movements_owned_by_user migration. */
-function migrationNameFunctions() {
-  const sql = readFileSync(migrationSqlPath("movements_owned_by_user"), "utf8");
-  const statements = sql.match(/CREATE FUNCTION pg_temp\.[\s\S]*?\$\$;/g) ?? [];
-  if (statements.length !== 2) throw new Error(`Expected 2 pg_temp functions, found ${statements.length}`);
-  return statements;
-}

@@ -12,6 +12,9 @@ export const errorMessages = {
   "added-weight-not-allowed": "Only body-weight movements take an added weight",
   "assistance-exceeds-body-weight": "Assistance can't be more than your body weight",
   "invalid-time-zone": "Your device's time zone isn't supported",
+  // auth
+  "invalid-credentials": "Invalid email or password",
+  "email-taken": "An account with this email already exists",
 } as const;
 
 export type ErrorCode = keyof typeof errorMessages;
