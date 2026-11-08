@@ -102,36 +102,89 @@ export const register = createServerOnlyFn(
   },
 );
 
+// The sign-in attempt limit: at most this many failed sign-ins per email and IP in the window.
+// Only failures are stored, and only for the window, so the table stays small.
+const maxFailures = 5;
+const attemptWindowMs = 15 * 60 * 1000;
+
+type TooManyAttempts = { ok: false; reason: "too-many-attempts"; retryAfterMinutes: number };
+
+/**
+ * Refuses a sign-in whose email and IP already have maxFailures failures in the window, saying in
+ * how many minutes it opens again. First deletes every failure older than the window, of every
+ * email: as for Sessions (ADR 0009), there is no scheduled cleanup.
+ */
+async function refuseOverLimit(db: DbClient, emailKey: string, ip: string, now: Date): Promise<TooManyAttempts | null> {
+  const windowStart = new Date(now.getTime() - attemptWindowMs);
+  await db.failedSignIn.deleteMany({ where: { createdAt: { lte: windowStart } } });
+  const failures = await db.failedSignIn.findMany({
+    where: { emailKey, ip, createdAt: { gt: windowStart } },
+    orderBy: { createdAt: "asc" },
+    select: { createdAt: true },
+  });
+  if (failures.length < maxFailures) return null;
+
+  // Refused attempts aren't stored, or trying again would push the wait out forever. So it opens
+  // once only maxFailures - 1 failures are left in the window: when the one at this index leaves.
+  const opensAt = failures[failures.length - maxFailures]!.createdAt.getTime() + attemptWindowMs;
+  return {
+    ok: false,
+    reason: "too-many-attempts",
+    retryAfterMinutes: Math.max(1, Math.ceil((opensAt - now.getTime()) / 60_000)),
+  };
+}
+
 // Verified when no account matches, so an unknown email takes as long as a wrong password. The
 // password is random and thrown away, so nothing ever verifies against it. Hashing costs ~50 ms,
 // so it happens once per process, on the first sign-in that needs it.
 let dummyPasswordHash: Promise<string> | undefined;
+
+/** The account with this email and password, or null. Always does one argon2 verification. */
+async function checkCredentials(db: DbClient, emailKey: string, password: string): Promise<SessionUser | null> {
+  const account = await db.user.findUnique({
+    where: { email: emailKey },
+    select: { ...sessionUserSelect, password: true },
+  });
+  if (!account) {
+    await verifyPassword(await (dummyPasswordHash ??= hashPassword(randomBytes(32).toString("base64url"))), password);
+    return null;
+  }
+  if (!(await verifyPassword(account.password, password))) return null;
+  const { password: _password, ...user } = account;
+  return user;
+}
 
 /**
  * Signs in with an email, in any case, and a password, starting a new Session: signing in on
  * another device keeps the first one. An unknown email and a wrong password both return
  * invalid-credentials after the same argon2 work, so neither the answer nor its timing says which
  * one was wrong. register's email-taken does tell that an account exists: a sign-up form has to.
+ *
+ * After 5 failures for the same email and IP in 15 minutes, it returns too-many-attempts with the
+ * minutes to wait, before any argon2 work, even for the right password. Emails with no account
+ * count the same way. A successful sign-in clears that email and IP's failures.
  */
 export const signIn = createServerOnlyFn(
   async (
     db: DbClient,
     cookies: SessionCookies,
-    { email, password }: { email: string; password: string },
-  ): Promise<Result<{ user: SessionUser }, "invalid-credentials">> => {
-    const account = await db.user.findUnique({
-      where: { email: normalizeEmail(email) },
-      select: { ...sessionUserSelect, password: true },
-    });
-    if (!account) {
-      await verifyPassword(await (dummyPasswordHash ??= hashPassword(randomBytes(32).toString("base64url"))), password);
+    { email, password, ip }: { email: string; password: string; ip: string },
+  ): Promise<Result<{ user: SessionUser }, "invalid-credentials" | "too-many-attempts">> => {
+    const emailKey = normalizeEmail(email);
+    // From this process's clock, not the database default, like every time the module compares.
+    const now = new Date();
+    const refusal = await refuseOverLimit(db, emailKey, ip, now);
+    if (refusal) return refusal;
+
+    const user = await checkCredentials(db, emailKey, password);
+    if (!user) {
+      await db.failedSignIn.create({ data: { emailKey, ip, createdAt: now } });
       return { ok: false, reason: "invalid-credentials" };
     }
-    if (!(await verifyPassword(account.password, password))) return { ok: false, reason: "invalid-credentials" };
 
-    const { password: _password, ...user } = account;
+    await db.failedSignIn.deleteMany({ where: { emailKey, ip } });
     // There is no scheduled cleanup (ADR 0009): a Session nobody reads again is deleted here.
-    await db.session.deleteMany({ where: { userId: user.id, expiresAt: { lte: new Date() } } });
+    await db.session.deleteMany({ where: { userId: user.id, expiresAt: { lte: now } } });
     await startSession(db, cookies, user.id);
     return { ok: true, user };
   },

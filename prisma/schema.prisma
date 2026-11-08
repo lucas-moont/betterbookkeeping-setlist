@@ -120,3 +120,19 @@ model Session {
   // Sign-in deletes the user's expired sessions, and Postgres doesn't index foreign keys.
   @@index([userId])
 }
+
+// A Failed Sign-in (CONTEXT.md), kept 15 minutes to limit failures per email and IP. Only
+// failures are stored, for any email, with or without an account, so there is no foreign key.
+// emailKey is the email as normalizeEmail() gives it. createdAt is set by the code, not the
+// database, so the window follows the same clock as the check.
+model FailedSignIn {
+  id        String   @id @default(uuid())
+  emailKey  String
+  ip        String
+  createdAt DateTime
+
+  // Counting a bucket's failures in the window reads (emailKey, ip) and a createdAt range.
+  @@index([emailKey, ip, createdAt])
+  // Every sign-in deletes the failures that left the window, of every email, by createdAt alone.
+  @@index([createdAt])
+}

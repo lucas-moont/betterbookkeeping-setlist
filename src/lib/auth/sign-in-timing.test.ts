@@ -20,6 +20,7 @@ describe("signIn with an email that has no account", () => {
     const result = await auth.signIn(db, memoryCookies(), {
       email: `nobody-${crypto.randomUUID()}@example.com`,
       password: "correct horse",
+      ip: "203.0.113.1",
     });
 
     expect(result).toEqual({ ok: false, reason: "invalid-credentials" });

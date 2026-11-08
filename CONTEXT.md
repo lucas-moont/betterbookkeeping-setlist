@@ -116,3 +116,7 @@ _Avoid_: Weight history graph
 **Session**:
 One signed-in browser of a user. It ends 14 to 15 days after the last visit (it is renewed at most once a day), 90 days after sign-in however often it is used, or when the user signs out of that browser. Other browsers stay signed in. Only an account term: a training session is a Workout.
 _Avoid_: Login
+
+**Failed Sign-in**:
+A sign-in with a wrong password, or with an email that has no account, kept for 15 minutes. After 5 for the same email from the same IP, sign-in is refused until the oldest one is 15 minutes old, even with the right password; a refused sign-in is not a Failed Sign-in. Signing in clears that email and IP's Failed Sign-ins.
+_Avoid_: Login attempt

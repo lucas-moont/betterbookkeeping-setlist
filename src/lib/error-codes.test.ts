@@ -30,6 +30,23 @@ describe("toServerResult", () => {
   });
 });
 
+describe("toServerResult for too-many-attempts", () => {
+  test("builds the message from the minutes and passes them through", () => {
+    expect(toServerResult({ ok: false, reason: "too-many-attempts", retryAfterMinutes: 9 })).toEqual({
+      success: false,
+      code: "too-many-attempts",
+      error: "Too many sign-in attempts. Try again in 9 minutes.",
+      retryAfterMinutes: 9,
+    });
+  });
+
+  test("says 1 minute, not 1 minutes", () => {
+    expect(toServerResult({ ok: false, reason: "too-many-attempts", retryAfterMinutes: 1 })).toMatchObject({
+      error: "Too many sign-in attempts. Try again in 1 minute.",
+    });
+  });
+});
+
 describe("unwrap", () => {
   test("hands a success back as it is", () => {
     const result = { success: true as const, set: { id: "set-1" } };

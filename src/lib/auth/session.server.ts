@@ -1,4 +1,4 @@
-import { deleteCookie, getCookie, setCookie } from "@tanstack/react-start/server";
+import { deleteCookie, getCookie, getRequestIP, setCookie } from "@tanstack/react-start/server";
 import { sessionCookieOptions } from "./cookie-options";
 import type { SessionCookies } from "./index";
 
@@ -15,4 +15,13 @@ export function requestSessionCookies(): SessionCookies {
     set: (token, maxAgeSeconds) => setCookie(sessionCookieName, token, { ...options, maxAge: maxAgeSeconds }),
     delete: () => deleteCookie(sessionCookieName, options),
   };
+}
+
+/**
+ * The IP the current request came from, for the sign-in attempt limit: the address of the
+ * connection itself. A request whose address the server can't see shares one "unknown" bucket per
+ * email.
+ */
+export function requestClientIp(): string {
+  return getRequestIP() ?? "unknown";
 }
