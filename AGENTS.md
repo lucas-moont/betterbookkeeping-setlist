@@ -36,7 +36,7 @@ Use **Bun** for everything.
 - **Load**: `load()` in `src/lib/weight.ts` is the only Load formula (ADR 0002, ADR 0003). Import it; don't recompute `weight + addedWeight`.
 - **Dates and weights on screen**: format them with `src/lib/format.ts` (`formatWeight`, `formatDate`, `formatCalendarDate`, `formatCalendarMonth`, `todayIsoDate`). Never call `toLocaleDateString` or write the unit in a screen; a field that shows the unit beside it uses `weightUnit`. The user's time zone comes from `useTimeZone()` (`src/lib/time-zone.ts`), read from the `tz` cookie on the server render and in the browser alike (ADR 0004). Calendar dates cross the server-function boundary as `"YYYY-MM-DD"` strings. A domain module that needs the zone takes `timeZone` as a parameter; only its server function calls `readTimeZone()`.
 - **Server state**: TanStack Query. Route loaders call `queryClient.ensureQueryData(...)` and components read the same data with `useSuspenseQuery`. Pages never call `invalidateQueries`: each mutation is built with `serverMutationOptions`, which throws a `{ success: false }` as a `ServerResultError` and lists the key prefixes it makes stale in `meta.invalidates`. The `MutationCache` in `src/router.tsx` invalidates them on success (keeping the mutation pending until the queries on screen have refetched) and shows the error toast on failure, except for the codes a mutation lists in `formErrors`, which its form shows next to the field.
-- **Auth**: an HMAC-signed session cookie holding the user ID, set in `src/lib/auth/session.server.ts`. Signed-in routes live under `src/routes/__index/_layout*`, and the layout redirects to `/sign-in` when there's no user.
+- **Auth**: sessions live in the `Session` table (ADR 0009). The cookie holds a random token, and the table stores only its SHA-256 hash; a session lasts 15 days, slides at most once a day, and signing out deletes the row. The rules are in `src/lib/auth/index.ts`, and `src/lib/auth/session.server.ts` only reads and writes the cookie. Signed-in routes live under `src/routes/__index/_layout*`, and the layout redirects to `/sign-in` when there's no user.
 - **Database**: PostgreSQL with Prisma 7 through the `@prisma/adapter-pg` driver adapter. The schema is `prisma/schema.prisma`, and the client is generated into `prisma/generated/` (gitignored). Get a client with `getServerSidePrismaClient()` from `src/lib/db.server.ts`.
 - **Styling**: Tailwind CSS v4. The brand color is `--color-primary` in `src/styles.css`. Small hand-rolled UI primitives live in `src/components/ui/`.
 - **New screen or substantial UI rework**: run `/prototype` to validate layout and flow, then `/impeccable` for the final design. Keep the identity the existing screens already set: slate neutrals, white cards, `--color-primary` as the accent, `lucide-react` icons, and the primitives in `src/components/ui/`.
@@ -44,7 +44,7 @@ Use **Bun** for everything.
 
 ## Configuration
 
-- `.env` is committed and holds the non-secret local development defaults (`DATABASE_URL`, `COOKIE_SECRET`, `VITE_ENVIRONMENT`, `ENVIRONMENT`). Overrides go in `.env.local`, which is gitignored.
+- `.env` is committed and holds the non-secret local development defaults (`DATABASE_URL`, `VITE_ENVIRONMENT`, `ENVIRONMENT`). Overrides go in `.env.local`, which is gitignored.
 - In Docker, the app reaches Postgres at `postgres:5432`. From the host, Postgres is at `localhost:55432`.
 - The app container syncs `src/` and `public/` and rebuilds when `prisma/`, `package.json`, or `bun.lock` change.
 

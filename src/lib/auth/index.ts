@@ -1,13 +1,13 @@
-import crypto from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createServerOnlyFn } from "@tanstack/react-start";
 import type { DbClient } from "@/lib/db.server";
 import type { Result } from "@/lib/error-codes";
 import { hashPassword, verifyPassword } from "./password";
 
-// The auth module (ADR 0010): accounts and the session behind the session cookie. It takes the
-// cookie as a SessionCookies seam instead of reading the request, so the tests drive it with an
-// in-memory cookie and session.server.ts is only the TanStack adapter. The password never leaves
-// this module: every user it returns is a SessionUser.
+// The auth module (ADR 0010): accounts and the Sessions behind the session cookie (ADR 0009). It
+// takes the cookie as a SessionCookies seam instead of reading the request, so the tests drive it
+// with an in-memory cookie and session.server.ts is only the TanStack adapter. The password never
+// leaves this module: every user it returns is a SessionUser.
 
 /** The signed-in user as the rest of the app sees it. User.name is optional in the schema. */
 export type SessionUser = { id: string; email: string; name: string | null };
@@ -21,31 +21,25 @@ export type SessionCookies = {
 
 const sessionUserSelect = { id: true, email: true, name: true } as const;
 
-const sessionMaxAgeSeconds = 7 * 24 * 60 * 60;
+const dayMs = 24 * 60 * 60 * 1000;
+const sessionLifetimeMs = 15 * dayMs;
+// Renewing only when less than this is left means at most one renewal a day, so reading the
+// session doesn't turn into a write on every request, and no "last renewed" column is needed.
+const renewWhenLeftMs = 14 * dayMs;
 
-// The token is still the user ID with an HMAC signature, as before this module existed. Read
-// inside the functions so the development fallback never sits at the top of a module the client
-// bundle imports.
-function cookieSecret(): string {
-  return process.env.COOKIE_SECRET || "dev-secret-change-in-production";
+// Only the hash is stored, so a copy of the Session table can't be used to sign in. The token is
+// 32 random bytes, so a fast unsalted hash is enough: there's nothing to guess.
+function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
 }
 
-function signature(userId: string): string {
-  return crypto.createHmac("sha256", cookieSecret()).update(userId).digest("hex");
-}
-
-function sessionToken(userId: string): string {
-  return `${userId}.${signature(userId)}`;
-}
-
-function userIdFromToken(token: string): string | null {
-  const [userId, given] = token.split(".");
-  if (!userId || !given) return null;
-  return given === signature(userId) ? userId : null;
-}
-
-function startSession(cookies: SessionCookies, userId: string) {
-  cookies.set(sessionToken(userId), sessionMaxAgeSeconds);
+/** Starts a new Session for the user and puts its token in the cookie. */
+async function startSession(db: DbClient, cookies: SessionCookies, userId: string) {
+  const token = randomBytes(32).toString("base64url");
+  await db.session.create({
+    data: { tokenHash: hashToken(token), userId, expiresAt: new Date(Date.now() + sessionLifetimeMs) },
+  });
+  cookies.set(token, sessionLifetimeMs / 1000);
 }
 
 /**
@@ -68,14 +62,15 @@ export const register = createServerOnlyFn(
     });
     if (!user) return { ok: false, reason: "email-taken" };
 
-    startSession(cookies, user.id);
+    await startSession(db, cookies, user.id);
     return { ok: true, user };
   },
 );
 
 /**
- * Signs in with an email and password. An unknown email and a wrong password both return
- * invalid-credentials, so sign-in never tells which emails have an account.
+ * Signs in with an email and password, starting a new Session: signing in on another device keeps
+ * the first one. An unknown email and a wrong password both return invalid-credentials, so sign-in
+ * never tells which emails have an account.
  */
 export const signIn = createServerOnlyFn(
   async (
@@ -87,25 +82,52 @@ export const signIn = createServerOnlyFn(
     if (!row || !(await verifyPassword(row.password, password))) return { ok: false, reason: "invalid-credentials" };
 
     const { password: _password, ...user } = row;
-    startSession(cookies, user.id);
+    // There is no scheduled cleanup (ADR 0009): a Session nobody reads again is deleted here.
+    await db.session.deleteMany({ where: { userId: user.id, expiresAt: { lte: new Date() } } });
+    await startSession(db, cookies, user.id);
     return { ok: true, user };
   },
 );
 
-/** Signs out by deleting the session cookie. */
+/** Ends the Session the cookie holds, so a copy of the cookie stops working too, then deletes the cookie. */
 export const signOut = createServerOnlyFn(
-  async (_db: DbClient, cookies: SessionCookies): Promise<Result<object, never>> => {
+  async (db: DbClient, cookies: SessionCookies): Promise<Result<object, never>> => {
+    const token = cookies.get();
+    if (token) await db.session.deleteMany({ where: { tokenHash: hashToken(token) } });
     cookies.delete();
     return { ok: true };
   },
 );
 
-/** The user the session cookie belongs to, or null when there is none or it isn't valid. */
+/**
+ * The user whose Session the cookie holds, or null when there is none or it expired. An expired
+ * Session is deleted here. A Session with less than 14 of its 15 days left slides to 15 days from
+ * now, and the cookie is written again with the new max age, or the browser would drop it on the
+ * original day 15 while the Session was still valid.
+ */
 export const currentUser = createServerOnlyFn(
   async (db: DbClient, cookies: SessionCookies): Promise<SessionUser | null> => {
     const token = cookies.get();
-    const userId = token ? userIdFromToken(token) : null;
-    if (!userId) return null;
-    return db.user.findUnique({ where: { id: userId }, select: sessionUserSelect });
+    if (!token) return null;
+
+    const session = await db.session.findUnique({
+      where: { tokenHash: hashToken(token) },
+      select: { id: true, expiresAt: true, user: { select: sessionUserSelect } },
+    });
+    if (!session) return null;
+
+    const now = Date.now();
+    const left = session.expiresAt.getTime() - now;
+    // deleteMany and updateMany, not delete and update: a concurrent request may have removed the
+    // row already (another read of this expired Session, or a sign-out), and that isn't an error.
+    if (left <= 0) {
+      await db.session.deleteMany({ where: { id: session.id } });
+      return null;
+    }
+    if (left < renewWhenLeftMs) {
+      await db.session.updateMany({ where: { id: session.id }, data: { expiresAt: new Date(now + sessionLifetimeMs) } });
+      cookies.set(token, sessionLifetimeMs / 1000);
+    }
+    return session.user;
   },
 );

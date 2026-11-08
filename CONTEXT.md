@@ -110,3 +110,9 @@ _Avoid_: Missed workout, skipped session
 **Body Weight Chart**:
 A chart of the user's Body Weight Entries over time, one point per date.
 _Avoid_: Weight history graph
+
+### Account
+
+**Session**:
+One signed-in browser of a user. It ends 14 to 15 days after the last visit (it is renewed at most once a day), or when the user signs out of that browser. Other browsers stay signed in. Only an account term: a training session is a Workout.
+_Avoid_: Login

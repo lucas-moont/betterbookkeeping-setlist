@@ -62,7 +62,6 @@ jobs:
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/setlist_test
       VITE_ENVIRONMENT: test
       ENVIRONMENT: test
-      COOKIE_SECRET: ci-cookie-secret
     steps:
       - uses: actions/checkout@v4
       - name: Setup Bun

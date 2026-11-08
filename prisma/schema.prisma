@@ -17,6 +17,7 @@ model User {
   workouts          Workout[]
   movements         Movement[]
   bodyWeightEntries BodyWeightEntry[]
+  sessions          Session[]
 }
 
 // Every Movement belongs to one user (ADR 0001). nameKey is the name trimmed and lower-cased, so
@@ -103,4 +104,19 @@ model BodyWeightEntry {
   updatedAt DateTime @updatedAt
 
   @@unique([userId, date])
+}
+
+// A signed-in browser (ADR 0009). The cookie holds a random token and only its SHA-256 hash is
+// stored here, so a copy of this table can't be used to sign in. expiresAt slides 15 days ahead,
+// at most once a day. Signing out deletes the row; deleting the user deletes their sessions.
+model Session {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  // Sign-in deletes the user's expired sessions, and Postgres doesn't index foreign keys.
+  @@index([userId])
 }
