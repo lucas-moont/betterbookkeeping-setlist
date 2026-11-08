@@ -1,8 +1,10 @@
 import { test, expect, type Page } from "./fixtures";
 import {
   addSet,
+  completeButton,
   completeWorkout,
   createMovement,
+  deleteSelectedButton,
   historyRows,
   logCompletedWorkout,
   openPage,
@@ -26,7 +28,7 @@ async function addPlannedSets(page: Page, movement: string, count: number) {
 
 /** Clicks Complete Workout on a workout with no Completed Sets and waits for the question. */
 async function completeEmptyWorkout(page: Page, title = "This workout has no sets") {
-  await page.getByRole("button", { name: "Complete Workout" }).click();
+  await completeButton(page).click();
   const dialog = page.getByRole("dialog", { name: title });
   await expect(dialog).toBeVisible();
   return dialog;
@@ -96,7 +98,7 @@ test.describe("Completing a workout with no sets", () => {
     await expect(dialog).toBeHidden();
     await expect(page.getByLabel("Movement", { exact: true })).toBeFocused();
     await openPage(page, "/current-workout");
-    await expect(page.getByRole("button", { name: "Complete Workout" })).toBeVisible();
+    await expect(completeButton(page)).toBeVisible();
   });
 
   test("Esc and a click outside the dialog both mean keep logging", async ({ page }) => {
@@ -114,7 +116,7 @@ test.describe("Completing a workout with no sets", () => {
 
     await expect(dialog).toBeHidden();
     await expect(page.getByLabel("Movement", { exact: true })).toBeFocused();
-    await expect(page.getByRole("button", { name: "Complete Workout" })).toBeVisible();
+    await expect(completeButton(page)).toBeVisible();
   });
 
   test("asks too when every set is planned", async ({ page }) => {
@@ -236,7 +238,7 @@ test.describe("A gym visit in the history", () => {
     await expect(historyRows(page)).toHaveCount(2);
 
     await historyRows(page).filter({ hasText: "Gym visit" }).getByRole("checkbox").check();
-    await page.getByRole("button", { name: "Delete Selected (1)" }).click();
+    await deleteSelectedButton(page, 1).click();
 
     await expect(historyRows(page)).toHaveText([/135 lb \/ 8 reps \/ 1 set$/]);
     // Deleting was saved, not just hidden.

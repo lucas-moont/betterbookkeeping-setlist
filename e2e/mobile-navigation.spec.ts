@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "./fixtures";
-import { createMovement, openPage, uniqueToken } from "./helpers";
+import { createMovement, logCompletedWorkout, openPage, uniqueToken } from "./helpers";
 
 // Below 768 px a bottom bar replaces the sidebar (DESIGN.md, Layout). The fixture signs up at the
 // desktop size; each test then turns the window into a phone's (iPhone SE).
@@ -59,6 +59,23 @@ test.describe("Bottom navigation on phones", () => {
   });
 });
 
+test("no page scrolls sideways on a phone", async ({ page }) => {
+  await page.setViewportSize(phone);
+  const movement = `Romanian Deadlift With Pause ${uniqueToken()}`;
+  await createMovement(page, movement);
+  await logCompletedWorkout(page, { movement, weight: 225, reps: 8 });
+
+  for (const path of ["/current-workout", "/workout-history", "/movements", "/profile"]) {
+    await openPage(page, path);
+    // Wide content (the history table) scrolls inside its own region, never the page.
+    const widths = await page.evaluate(() => {
+      const main = document.querySelector("main")!;
+      return [document.documentElement.scrollWidth, main.scrollWidth, main.clientWidth];
+    });
+    expect(widths, path).toEqual([phone.width, widths[2], widths[2]]);
+  }
+});
+
 test.describe("Profile and fields on phones", () => {
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize(phone);
@@ -94,7 +111,7 @@ test.describe("Profile and fields on phones", () => {
   });
 });
 
-test("the desktop keeps the sidebar and has no bottom bar", async ({ page }) => {
+test("the desktop keeps the sidebar and has no bottom bar", { tag: "@desktop" }, async ({ page }) => {
   await openPage(page, "/current-workout");
 
   const nav = mainNav(page);
@@ -103,7 +120,7 @@ test("the desktop keeps the sidebar and has no bottom bar", async ({ page }) => 
   await expect(nav.getByRole("button", { name: "Log out" })).toBeVisible();
 });
 
-test("the desktop Profile leaves who is signed in to the sidebar", async ({ page }) => {
+test("the desktop Profile leaves who is signed in to the sidebar", { tag: "@desktop" }, async ({ page }) => {
   await openPage(page, "/profile");
 
   await expect(page.locator("main").getByText("Logged in as")).toBeHidden();

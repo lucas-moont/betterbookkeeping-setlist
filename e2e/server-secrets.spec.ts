@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { createAccount } from "./helpers";
+import { createAccount, navLink } from "./helpers";
 
 type CapturedResponse = { url: string; body: string };
 
@@ -47,9 +47,9 @@ test.describe("Server secrets", () => {
     await createAccount(page, `e2e-secrets-${Date.now()}@example.com`, password);
 
     // Client-side navigations: the user comes back through server function calls.
-    await page.getByRole("link", { name: "Movements" }).click();
+    await navLink(page, "movements").click();
     await expect(page).toHaveURL(/\/movements$/);
-    await page.getByRole("link", { name: "Workout History" }).click();
+    await navLink(page, "history").click();
     await expect(page).toHaveURL(/\/workout-history$/);
     // Full page load: the user comes back inside the server-rendered HTML.
     await page.goto("/movements");

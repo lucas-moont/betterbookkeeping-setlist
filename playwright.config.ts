@@ -13,10 +13,19 @@ export default defineConfig({
     baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000",
     trace: "on-first-retry",
   },
+  // The same specs at two widths. "phone" is an iPhone SE's screen (375×667) in Chromium, below the
+  // md breakpoint, so the bottom bar replaces the sidebar (DESIGN.md, Layout). The helpers find the
+  // controls at either width. Tests tagged @desktop check the sidebar itself and only run on
+  // "chromium"; the phone layout's own tests set their size and run on both.
   projects: [
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "phone",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 375, height: 667 }, isMobile: true, hasTouch: true },
+      grepInvert: /@desktop/,
     },
   ],
 });

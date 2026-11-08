@@ -24,7 +24,7 @@ function chart(page: Page, movement: string, metric = "Max Weight") {
 }
 
 test.describe("Progression", () => {
-  test("should chart the movement with a completed set", async ({ page }) => {
+  test("should chart the movement with a completed set", { tag: "@desktop" }, async ({ page }) => {
     const movement = `Bench Press ${uniqueToken()}`;
     await createMovement(page, movement);
     await logCompletedWorkout(page, { movement, weight: 185, reps: 6 });
@@ -39,7 +39,7 @@ test.describe("Progression", () => {
     await expect(page.getByText("One point per Training Day.")).toBeVisible();
   });
 
-  test("should list only movements with a completed set", async ({ page }) => {
+  test("should list only movements with a completed set", { tag: "@desktop" }, async ({ page }) => {
     const token = uniqueToken();
     const done = `Back Squat ${token}`;
     const skipped = `Lunge ${token}`;
@@ -64,37 +64,41 @@ test.describe("Progression", () => {
     await expect(page.getByText("Complete a set in a workout and your progress shows up here.")).toBeVisible();
   });
 
-  test("should filter the list as the user types, and chart a movement only once picked", async ({ page }) => {
-    const token = uniqueToken();
-    const squat = `Back Squat ${token}`;
-    const bench = `Bench Press ${token}`;
-    await createMovement(page, squat);
-    await createMovement(page, bench);
-    await logCompletedWorkout(page, { movement: squat, weight: 225, reps: 5 });
-    await logCompletedWorkout(page, { movement: bench, weight: 185, reps: 6 });
-    await openPage(page, "/workout-history");
-    // Both have one Training Day: the tie goes to the first by name.
-    await expect(chart(page, squat)).toBeVisible();
-    const search = page.getByRole("searchbox", { name: "Search movements" });
+  test(
+    "should filter the list as the user types, and chart a movement only once picked",
+    { tag: "@desktop" },
+    async ({ page }) => {
+      const token = uniqueToken();
+      const squat = `Back Squat ${token}`;
+      const bench = `Bench Press ${token}`;
+      await createMovement(page, squat);
+      await createMovement(page, bench);
+      await logCompletedWorkout(page, { movement: squat, weight: 225, reps: 5 });
+      await logCompletedWorkout(page, { movement: bench, weight: 185, reps: 6 });
+      await openPage(page, "/workout-history");
+      // Both have one Training Day: the tie goes to the first by name.
+      await expect(chart(page, squat)).toBeVisible();
+      const search = page.getByRole("searchbox", { name: "Search movements" });
 
-    await search.fill("BENCH");
+      await search.fill("BENCH");
 
-    await expect(movementList(page).getByRole("button")).toHaveText([new RegExp(`^${bench}`)]);
-    // Filtering never changes the chart.
-    await expect(chart(page, squat)).toBeVisible();
+      await expect(movementList(page).getByRole("button")).toHaveText([new RegExp(`^${bench}`)]);
+      // Filtering never changes the chart.
+      await expect(chart(page, squat)).toBeVisible();
 
-    await search.press("Enter");
+      await search.press("Enter");
 
-    await expect(chart(page, bench)).toBeVisible();
-    await expect(movementButton(page, bench)).toHaveAttribute("aria-current", "true");
+      await expect(chart(page, bench)).toBeVisible();
+      await expect(movementButton(page, bench)).toHaveAttribute("aria-current", "true");
 
-    await search.fill("zzz");
-    await expect(page.getByText('No movements match "zzz".')).toBeVisible();
-    await search.press("Escape");
-    await expect(search).toHaveValue("");
-    await expect(movementList(page).getByRole("button")).toHaveCount(2);
-    await expect(chart(page, bench)).toBeVisible();
-  });
+      await search.fill("zzz");
+      await expect(page.getByText('No movements match "zzz".')).toBeVisible();
+      await search.press("Escape");
+      await expect(search).toHaveValue("");
+      await expect(movementList(page).getByRole("button")).toHaveCount(2);
+      await expect(chart(page, bench)).toBeVisible();
+    },
+  );
 
   test("should switch the metric without asking the server again", async ({ page }) => {
     const movement = `Overhead Press ${uniqueToken()}`;
@@ -195,7 +199,7 @@ test.describe("Progression", () => {
       );
     });
 
-    test("should shade the time since the last Training Day", async ({ page }) => {
+    test("should shade the time since the last Training Day", { tag: "@desktop" }, async ({ page }) => {
       const movement = `Pull-up ${uniqueToken()}`;
       await createMovement(page, movement);
       await logCompletedWorkout(page, { movement, weight: 0, reps: 8 });
