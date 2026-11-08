@@ -10,13 +10,13 @@ import { MovementCombobox, MovementList } from "./movement-picker";
 import { defaultMovement, metrics, periods, type Metric, type Period } from "./progression";
 import { ProgressionChart, chartHeight } from "./progression-chart";
 
-const metricOptions = (Object.keys(metrics) as Metric[]).map(
-  (metric): SegmentedOption<Metric> => ({ value: metric, label: metrics[metric].label }),
-);
+/** A segmented control's options from a record of choices, each with its label. */
+function toOptions<T extends string>(record: Record<T, { label: string }>): SegmentedOption<T>[] {
+  return (Object.keys(record) as T[]).map((value) => ({ value, label: record[value].label }));
+}
 
-const periodOptions = (Object.keys(periods) as Period[]).map(
-  (period): SegmentedOption<Period> => ({ value: period, label: periods[period].label }),
-);
+const metricOptions = toOptions<Metric>(metrics);
+const periodOptions = toOptions<Period>(periods);
 
 /**
  * One Movement's Metric over time, above the Completed Workouts. The list holds only Movements with a
@@ -52,7 +52,8 @@ function ProgressionPanel({ movements }: { movements: ProgressionMovement[] }) {
   const [period, setPeriod] = useState<Period>("all");
 
   // A picked Movement whose workouts were all deleted falls back to the default.
-  const movement = movements.find((m) => m.id === pickedId) ?? defaultMovement(movements) ?? movements[0];
+  // The list is never empty here, so there is always a default.
+  const movement = (movements.find((m) => m.id === pickedId) ?? defaultMovement(movements)) as ProgressionMovement;
   // The pick shows at once in the list and the combobox; the chart keeps the previous Movement, dimmed,
   // until the new one's Training Days have loaded.
   const chartedMovement = useDeferredValue(movement);

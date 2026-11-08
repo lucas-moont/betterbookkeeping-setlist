@@ -8,13 +8,15 @@ import { ProgressionCard } from "./-components/progression-card";
 
 export const Route = createFileRoute("/__index/_layout/workout-history/")({
   loader: async ({ context: { queryClient, timeZone } }) => {
-    const [, { movements }] = await Promise.all([
+    // The chart opens on the default Movement, so its Training Days come with the page, fetched as
+    // soon as the Movements are known, while the history still loads.
+    await Promise.all([
       queryClient.ensureQueryData(workoutHistoryQueryOptions()),
-      queryClient.ensureQueryData(progressionMovementsQueryOptions(timeZone)),
+      queryClient.ensureQueryData(progressionMovementsQueryOptions(timeZone)).then(({ movements }) => {
+        const first = defaultMovement(movements);
+        return first && queryClient.ensureQueryData(progressionMetricsQueryOptions(first.id, timeZone));
+      }),
     ]);
-    // The chart opens on the default Movement, so its Training Days come with the page.
-    const first = defaultMovement(movements);
-    if (first) await queryClient.ensureQueryData(progressionMetricsQueryOptions(first.id, timeZone));
   },
   component: WorkoutHistoryPage,
 });

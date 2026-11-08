@@ -1,8 +1,8 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { ClientOnly } from "@tanstack/react-router";
 import { CartesianGrid, Line, LineChart, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { formatCalendarDate, formatCalendarMonth } from "@/lib/format";
-import { chartDomain, fittingLabel, splitAtGaps, visibleGaps, type ChartGap } from "./chart-gaps";
+import { chartDomain, clipGaps, fittingLabel, splitAtGaps, type ChartGap } from "./chart-gaps";
 import { monthTicks, tickShowsYear, timestampToDate, valueDomain } from "./time-axis";
 
 // The app's one line chart over time (the Body Weight Chart and the Progression Chart), so both look
@@ -42,6 +42,9 @@ const colors = {
   gapLabel: "#475569",
 };
 
+/** Where recharts places a band's label: its box, in pixels. */
+type LabelBox = { x?: number; y?: number; width?: number };
+
 /** How close to a point, in pixels, the pointer must be for the point's tooltip to win over a gap's. */
 const pointPriorityPx = 12;
 
@@ -74,23 +77,40 @@ function TimeChartBody({
   height,
 }: Omit<TimeChartProps, "ariaLabel"> & { height: number }) {
   // Which gap the pointer is over (or a finger tapped), where the pointer is in the chart's width, and
-  // where the nearest point is, in pixels.
+  // where the nearest point is, in pixels. The pointer is state only while a gap is hovered, the one
+  // time its tooltip follows it; otherwise a ref, so moving over the chart doesn't re-render it.
   const [hoveredGap, setHoveredGap] = useState<ChartGap | null>(null);
+  // The same gap for the pointer handler, which can run before React re-renders: a band's mouseenter
+  // fires before the pointermove that follows it.
+  const hoveredGapRef = useRef<ChartGap | null>(null);
+  const pointerRef = useRef<{ x: number; width: number } | null>(null);
   const [pointer, setPointer] = useState<{ x: number; width: number } | null>(null);
   const [pointX, setPointX] = useState<number | null>(null);
 
-  const xDomain = chartDomain(points, today, from);
-  const x = monthTicks(xDomain);
-  const y = valueDomain(points.map((point) => point.value));
-  const bands = visibleGaps(points, today, from, gaps);
-  const { rows, bridges } = splitAtGaps(points, bands.map((band) => band.gap));
+  const { xDomain, x, y, bands, rows, bridges } = useMemo(() => {
+    const xDomain = chartDomain(points, today, from);
+    const bands = clipGaps(gaps, xDomain);
+    return {
+      xDomain,
+      x: monthTicks(xDomain),
+      y: valueDomain(points.map((point) => point.value)),
+      bands,
+      ...splitAtGaps(points, bands.map((band) => band.gap)),
+    };
+  }, [points, today, from, gaps]);
   // A point's tooltip wins near the point; elsewhere in a band, the gap's.
   const gapActive =
     hoveredGap !== null && (pointX === null || pointer === null || Math.abs(pointer.x - pointX) > pointPriorityPx);
 
+  const hoverGap = (gap: ChartGap | null) => {
+    hoveredGapRef.current = gap;
+    setHoveredGap(gap);
+    setPointer(gap ? pointerRef.current : null);
+  };
   const trackPointer = (event: React.PointerEvent<HTMLDivElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
-    setPointer({ x: event.clientX - box.left, width: box.width });
+    pointerRef.current = { x: event.clientX - box.left, width: box.width };
+    if (hoveredGapRef.current) setPointer(pointerRef.current);
   };
 
   return (
@@ -101,15 +121,15 @@ function TimeChartBody({
         trackPointer(event);
         // A tap starts over: the band under the finger, if any, sets its gap again on click.
         if (event.pointerType !== "mouse") {
-          setHoveredGap(null);
+          hoverGap(null);
           setPointX(null);
         }
       }}
       onPointerLeave={(event) => {
         // A finger "leaves" as soon as it lifts; its gap stays until the next tap.
         if (event.pointerType !== "mouse") return;
-        setPointer(null);
-        setHoveredGap(null);
+        pointerRef.current = null;
+        hoverGap(null);
       }}>
       <ResponsiveContainer width="100%" height={height}>
         <LineChart
@@ -134,10 +154,10 @@ function TimeChartBody({
               fill={colors.gap}
               fillOpacity={0.6}
               stroke="none"
-              onMouseEnter={() => setHoveredGap(gap)}
-              onMouseLeave={() => setHoveredGap(null)}
-              onClick={() => setHoveredGap(gap)}
-              label={(props: { viewBox?: { x?: number; y?: number; width?: number } }) => (
+              onMouseEnter={() => hoverGap(gap)}
+              onMouseLeave={() => hoverGap(null)}
+              onClick={() => hoverGap(gap)}
+              label={(props: { viewBox?: LabelBox }) => (
                 <GapLabel viewBox={props.viewBox} labels={[gap.title, gap.duration]} />
               )}
             />
@@ -243,7 +263,7 @@ function TooltipBox({ title, children }: { title: string; children: ReactNode })
 }
 
 /** A gap band's label at its top: the full title if it fits, else the duration, else nothing. */
-function GapLabel({ viewBox, labels }: { viewBox?: { x?: number; y?: number; width?: number }; labels: string[] }) {
+function GapLabel({ viewBox, labels }: { viewBox?: LabelBox; labels: string[] }) {
   const width = viewBox?.width ?? 0;
   const label = fittingLabel(width, labels);
   if (!label) return null;

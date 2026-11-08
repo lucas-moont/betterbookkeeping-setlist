@@ -2,6 +2,7 @@ import type { ChartGap } from "@/components/charts/chart-gaps";
 import type { TimePoint } from "@/components/charts/time-chart";
 import { formatCalendarDate, formatCount, formatWeight } from "@/lib/format";
 import { isoDateToUtc, utcToIsoDate } from "@/lib/iso-date";
+import { movementNameKey } from "@/lib/movements/name";
 import type { ProgressionMovement, TrainingDayMetrics } from "@/lib/progression";
 import { findGaps, gapDurationLabel } from "@/lib/progression/gaps";
 
@@ -36,8 +37,8 @@ export function defaultMovement(movements: ProgressionMovement[]): ProgressionMo
 
 /** The Movements whose name holds the text, ignoring case. Front end only: the list is already here. */
 export function matchMovements(movements: ProgressionMovement[], query: string): ProgressionMovement[] {
-  const text = query.trim().toLowerCase();
-  return text ? movements.filter((movement) => movement.name.toLowerCase().includes(text)) : movements;
+  const text = movementNameKey(query);
+  return text ? movements.filter((movement) => movementNameKey(movement.name).includes(text)) : movements;
 }
 
 /** The first calendar date a period shows; All has none. */

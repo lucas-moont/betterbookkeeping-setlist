@@ -3,6 +3,7 @@ import { ClientOnly, useHydrated } from "@tanstack/react-router";
 import { visibleGaps } from "@/components/charts/chart-gaps";
 import { formatAxisAmount } from "@/components/charts/time-axis";
 import { TimeChart } from "@/components/charts/time-chart";
+import { Button } from "@/components/ui/button";
 import { formatCalendarDate, todayIsoDate } from "@/lib/format";
 import type { ProgressionMovement } from "@/lib/progression";
 import { progressionMetricsQueryOptions } from "@/lib/progression/queries";
@@ -41,12 +42,9 @@ export function ProgressionChart({
           No Training Days for {movement.name} in {periods[period].words}.
         </p>
         {lastDay && <p className="text-sm text-slate-500">Last one: {formatCalendarDate(lastDay.date)}.</p>}
-        <button
-          type="button"
-          onClick={onShowAllTime}
-          className="inline-flex h-11 items-center rounded px-2 text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 sm:h-auto">
+        <Button variant="link" onClick={onShowAllTime} className="h-11 shrink-0 px-2 text-sm sm:h-auto">
           Show all time
-        </button>
+        </Button>
       </div>
     );
   }
@@ -61,10 +59,9 @@ export function ProgressionChart({
   const shownGaps = visibleGaps(points, today, from, gaps);
   const openGap = shownGaps.find((band) => band.gap.open)?.gap;
   const span = points.length === 1 ? "1 Training Day" : `${points.length} Training Days`;
-  // A screen reader hears what the shading shows: ", no Bench Press since Jun 3, 2026, 5 months so far".
+  // A screen reader hears what the shading shows: ", No Bench Press since Jun 3, 2026, 5 months so far".
   // Only once hydrated: today is the browser's, and React keeps a server attribute that differs.
-  const openGapWords =
-    hydrated && openGap ? `, no ${movement.name} since ${formatCalendarDate(openGap.from)}, ${openGap.detail}` : "";
+  const openGapWords = hydrated && openGap ? `, ${openGap.title}, ${openGap.detail}` : "";
 
   return (
     <div className="space-y-2">

@@ -3,19 +3,13 @@ import {
   addSet,
   completeWorkout,
   createMovement,
+  displayDate,
   logCompletedWorkout,
   openPage,
   setRows,
   startWorkout,
   uniqueToken,
 } from "./helpers";
-
-// Written out here rather than imported from src/lib/format.ts, so the test doesn't check the code
-// against itself: "Saturday, November 7, 2026".
-function longDate(instant: Date, timeZone: string) {
-  const options = { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone } as const;
-  return new Intl.DateTimeFormat("en-US", options).format(instant);
-}
 
 /** The cell of a history row under the column with this header, once the header is on screen. */
 async function historyCell(page: Page, row: Locator, column: string) {
@@ -28,11 +22,6 @@ async function historyCell(page: Page, row: Locator, column: string) {
 /** Rows of the history table that hold a workout (the header row has the "select all" box instead). */
 function historyRows(page: Page) {
   return page.getByRole("row").filter({ has: page.getByRole("checkbox", { name: /^Select workout from / }) });
-}
-
-// The browser's today, as the history table writes a date: "Nov 7, 2026".
-function shortDate(instant: Date) {
-  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(instant);
 }
 
 test.describe("Workouts", () => {
@@ -57,7 +46,7 @@ test.describe("Workouts", () => {
       const startDay = await cardDate.textContent();
       const timeZone = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
       const twoDaysLater = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
-      expect(startDay).not.toBe(longDate(twoDaysLater, timeZone));
+      expect(startDay).not.toBe(displayDate(twoDaysLater, timeZone, "long"));
       await page.clock.setSystemTime(twoDaysLater);
 
       // Away and back through the menu, so the page renders again with the moved clock.
@@ -124,9 +113,12 @@ test.describe("Workouts", () => {
 
       await expect(page.getByRole("columnheader", { name: movement })).toBeVisible();
       await expect(historyRows(page)).toHaveText([/315 lb \/ 3 reps \/ 1 set$/]);
-      // Each row's box says which workout it selects.
+      // Each row's box says which workout it selects, by its date in the browser's zone.
+      const timeZone = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
       await expect(
-        historyRows(page).getByRole("checkbox", { name: `Select workout from ${shortDate(new Date())}` }),
+        historyRows(page).getByRole("checkbox", {
+          name: `Select workout from ${displayDate(new Date(), timeZone, "short")}`,
+        }),
       ).toBeVisible();
     });
 

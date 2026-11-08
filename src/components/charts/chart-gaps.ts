@@ -62,6 +62,9 @@ export function fittingLabel(width: number, labels: string[]): string | undefine
 
 type Point = { t: number; value: number };
 
+/** A row of the line: a point at its timestamp, or the break in the middle of a gap. */
+export type LineRow<P> = (P & { t: number }) | { t: number; value: null };
+
 /**
  * The line's rows, broken in the middle of each closed gap, and the dashed bridges that join the two
  * points around each break. A gap whose left point is outside the data (before the window) or that is
@@ -70,11 +73,12 @@ type Point = { t: number; value: number };
 export function splitAtGaps<P extends { date: string; value: number }>(
   points: P[],
   gaps: ChartGap[],
-): { rows: ((P & { t: number }) | { t: number; value: null })[]; bridges: [Point, Point][] } {
-  const rows: ((P & { t: number }) | { t: number; value: null })[] = [...points]
+): { rows: LineRow<P>[]; bridges: [Point, Point][] } {
+  const pointRows = [...points]
     .sort((a, b) => (a.date < b.date ? -1 : 1))
     .map((point) => ({ ...point, t: dateToTimestamp(point.date) }));
-  const byDate = new Map(points.map((point) => [point.date, { t: dateToTimestamp(point.date), value: point.value }]));
+  const byDate = new Map(pointRows.map((row) => [row.date, { t: row.t, value: row.value }]));
+  const rows: LineRow<P>[] = [...pointRows];
   const bridges: [Point, Point][] = [];
   for (const gap of gaps) {
     const left = byDate.get(gap.from);

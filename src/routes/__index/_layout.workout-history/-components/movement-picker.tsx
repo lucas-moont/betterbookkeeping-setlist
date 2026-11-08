@@ -160,9 +160,8 @@ export function MovementCombobox({ movements, selectedId, onPick, className }: P
           }}
           onBlur={close}
           onChange={(e) => {
-            setOpen(true);
+            openList();
             setQuery(e.target.value);
-            setActiveIndex(-1);
           }}
           onKeyDown={(e) => {
             if (e.key === "ArrowDown") {

@@ -207,7 +207,7 @@ test.describe("Progression", () => {
       await expect(page.getByText(`More than 2 weeks without ${movement}`)).toBeVisible();
       // A screen reader hears the open gap with the chart's name.
       await expect(chart(page, movement)).toHaveAccessibleName(
-        new RegExp(`, no ${movement} since \\w{3} \\d{1,2}, \\d{4}, \\d+ months so far$`),
+        new RegExp(`, No ${movement} since \\w{3} \\d{1,2}, \\d{4}, \\d+ months so far$`),
       );
       // The chart is one image: recharts' own keyboard layer would add an unnamed stop inside it.
       await expect(chart(page, movement).locator('[role="application"]')).toHaveCount(0);
