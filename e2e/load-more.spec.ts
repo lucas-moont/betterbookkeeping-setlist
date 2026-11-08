@@ -1,5 +1,12 @@
 import { test, expect, type Page } from "./fixtures";
-import { createMovement, historyRows, logCompletedWorkout, openPage, uniqueToken } from "./helpers";
+import {
+  createMovement,
+  deleteSelectedButton,
+  historyRows,
+  logCompletedWorkout,
+  openPage,
+  uniqueToken,
+} from "./helpers";
 
 // The history shows one page of Completed Workouts and loads the next with "Load more". The hidden
 // ?pageSize= search param makes a page small, so three workouts are enough to need a second page.
@@ -17,11 +24,6 @@ function loadMore(page: Page) {
 
 function selectAll(page: Page) {
   return page.getByRole("checkbox", { name: "Select all loaded workouts" });
-}
-
-/** The bulk delete button, with how many workouts it will delete. */
-function deleteSelected(page: Page, count: number) {
-  return page.getByRole("button", { name: `Delete Selected (${count})` });
 }
 
 test.describe("Load more", () => {
@@ -85,7 +87,7 @@ test.describe("Load more", () => {
     await loadMore(page).click();
     await historyRows(page).filter({ hasText: "101 lb" }).getByRole("checkbox").check();
 
-    await deleteSelected(page, 2).click();
+    await deleteSelectedButton(page, 2).click();
 
     await expect(historyRows(page)).toHaveText([/102 lb/]);
     // The deletion was saved, not just hidden.
@@ -98,13 +100,13 @@ test.describe("Load more", () => {
     await openPage(page, "/workout-history?pageSize=2");
 
     await selectAll(page).check();
-    await expect(deleteSelected(page, 2)).toBeVisible();
+    await expect(deleteSelectedButton(page, 2)).toBeVisible();
     await loadMore(page).click();
 
     await expect(historyRows(page)).toHaveCount(3);
     await expect(selectAll(page)).not.toBeChecked();
     await expect(historyRows(page).filter({ hasText: "101 lb" }).getByRole("checkbox")).not.toBeChecked();
-    await deleteSelected(page, 2).click();
+    await deleteSelectedButton(page, 2).click();
     await expect(historyRows(page)).toHaveText([/101 lb/]);
   });
 });

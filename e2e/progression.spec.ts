@@ -18,6 +18,24 @@ function movementButton(page: Page, name: string) {
   return movementList(page).getByRole("button", { name: new RegExp(`^${name} \\d+ Training Days$`) });
 }
 
+/** Whether the Progression card shows its movement list (from lg) rather than a phone's combobox. */
+function showsList(page: Page) {
+  return (page.viewportSize()?.width ?? 0) >= 1024;
+}
+
+/** Checks the movement the chart is on, in the list or in the combobox, whichever this width shows. */
+async function expectPicked(page: Page, movement: string) {
+  if (showsList(page)) await expect(movementButton(page, movement)).toHaveAttribute("aria-current", "true");
+  else await expect(page.getByRole("combobox", { name: "Movement" })).toHaveValue(movement);
+}
+
+/** The movements to pick from: the list's buttons, or the combobox's options once it's open. */
+async function movementChoices(page: Page) {
+  if (showsList(page)) return movementList(page).getByRole("button");
+  await page.getByRole("combobox", { name: "Movement" }).click();
+  return page.getByRole("listbox", { name: "Movements" }).getByRole("option");
+}
+
 /** The chart, named after the movement and metric it shows. */
 function chart(page: Page, movement: string, metric = "Max Weight") {
   return page.getByRole("img", { name: new RegExp(`^${movement}, ${metric}: `) });
@@ -31,7 +49,7 @@ test.describe("Progression", () => {
 
     await openPage(page, "/workout-history");
 
-    await expect(movementButton(page, movement)).toHaveAttribute("aria-current", "true");
+    await expectPicked(page, movement);
     await expect(chart(page, movement)).toBeVisible();
     // The chart draws in the browser only, so this also checks it rendered after hydration.
     await expect(chart(page, movement).locator(".recharts-line-dots circle")).toHaveCount(1);
@@ -54,7 +72,7 @@ test.describe("Progression", () => {
 
     await openPage(page, "/workout-history");
 
-    await expect(movementList(page).getByRole("button")).toHaveText([new RegExp(`^${done}\\s*1 Training Days$`)]);
+    await expect(await movementChoices(page)).toHaveText([new RegExp(`^${done}\\s*1 Training Days$`)]);
   });
 
   test("should say there are no Training Days yet before any set is completed", async ({ page }) => {
@@ -64,37 +82,42 @@ test.describe("Progression", () => {
     await expect(page.getByText("Complete a set in a workout and your progress shows up here.")).toBeVisible();
   });
 
-  test("should filter the list as the user types, and chart a movement only once picked", async ({ page }) => {
-    const token = uniqueToken();
-    const squat = `Back Squat ${token}`;
-    const bench = `Bench Press ${token}`;
-    await createMovement(page, squat);
-    await createMovement(page, bench);
-    await logCompletedWorkout(page, { movement: squat, weight: 225, reps: 5 });
-    await logCompletedWorkout(page, { movement: bench, weight: 185, reps: 6 });
-    await openPage(page, "/workout-history");
-    // Both have one Training Day: the tie goes to the first by name.
-    await expect(chart(page, squat)).toBeVisible();
-    const search = page.getByRole("searchbox", { name: "Search movements" });
+  // The list with its search box is the desktop's picker; the phone's combobox filters in its own test below.
+  test(
+    "should filter the list as the user types, and chart a movement only once picked",
+    { tag: "@desktop" },
+    async ({ page }) => {
+      const token = uniqueToken();
+      const squat = `Back Squat ${token}`;
+      const bench = `Bench Press ${token}`;
+      await createMovement(page, squat);
+      await createMovement(page, bench);
+      await logCompletedWorkout(page, { movement: squat, weight: 225, reps: 5 });
+      await logCompletedWorkout(page, { movement: bench, weight: 185, reps: 6 });
+      await openPage(page, "/workout-history");
+      // Both have one Training Day: the tie goes to the first by name.
+      await expect(chart(page, squat)).toBeVisible();
+      const search = page.getByRole("searchbox", { name: "Search movements" });
 
-    await search.fill("BENCH");
+      await search.fill("BENCH");
 
-    await expect(movementList(page).getByRole("button")).toHaveText([new RegExp(`^${bench}`)]);
-    // Filtering never changes the chart.
-    await expect(chart(page, squat)).toBeVisible();
+      await expect(movementList(page).getByRole("button")).toHaveText([new RegExp(`^${bench}`)]);
+      // Filtering never changes the chart.
+      await expect(chart(page, squat)).toBeVisible();
 
-    await search.press("Enter");
+      await search.press("Enter");
 
-    await expect(chart(page, bench)).toBeVisible();
-    await expect(movementButton(page, bench)).toHaveAttribute("aria-current", "true");
+      await expect(chart(page, bench)).toBeVisible();
+      await expect(movementButton(page, bench)).toHaveAttribute("aria-current", "true");
 
-    await search.fill("zzz");
-    await expect(page.getByText('No movements match "zzz".')).toBeVisible();
-    await search.press("Escape");
-    await expect(search).toHaveValue("");
-    await expect(movementList(page).getByRole("button")).toHaveCount(2);
-    await expect(chart(page, bench)).toBeVisible();
-  });
+      await search.fill("zzz");
+      await expect(page.getByText('No movements match "zzz".')).toBeVisible();
+      await search.press("Escape");
+      await expect(search).toHaveValue("");
+      await expect(movementList(page).getByRole("button")).toHaveCount(2);
+      await expect(chart(page, bench)).toBeVisible();
+    },
+  );
 
   test("should switch the metric without asking the server again", async ({ page }) => {
     const movement = `Overhead Press ${uniqueToken()}`;
@@ -195,7 +218,9 @@ test.describe("Progression", () => {
       );
     });
 
-    test("should shade the time since the last Training Day", async ({ page }) => {
+    // The gap's title only shows where the band is wide enough for it, and its tooltip is hovered here;
+    // the touch-screen test below taps it on a phone.
+    test("should shade the time since the last Training Day", { tag: "@desktop" }, async ({ page }) => {
       const movement = `Pull-up ${uniqueToken()}`;
       await createMovement(page, movement);
       await logCompletedWorkout(page, { movement, weight: 0, reps: 8 });

@@ -6,7 +6,8 @@ function entryRows(page: Page) {
 }
 
 test.describe("Body Weight", () => {
-  test("should open the Profile from the signed-in user's block", async ({ page }) => {
+  // The sidebar's user block; a phone reaches the Profile from the bottom bar (mobile-navigation.spec.ts).
+  test("should open the Profile from the signed-in user's block", { tag: "@desktop" }, async ({ page }) => {
     await openPage(page, "/current-workout");
 
     await page.getByRole("link", { name: /Logged in as/ }).click();

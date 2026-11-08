@@ -1,11 +1,14 @@
 import { test, expect, type Locator, type Page } from "./fixtures";
 import {
   addSet,
+  completeButton,
   completeWorkout,
   createMovement,
+  deleteSelectedButton,
   displayDate,
   historyRows,
   logCompletedWorkout,
+  navLink,
   openPage,
   setRows,
   startWorkout,
@@ -27,7 +30,7 @@ test.describe("Workouts", () => {
 
       await page.getByRole("button", { name: "Start Workout" }).click();
 
-      await expect(page.getByRole("button", { name: "Complete Workout" })).toBeVisible();
+      await expect(completeButton(page)).toBeVisible();
       await expect(page.getByLabel("Movement", { exact: true })).toBeVisible();
       await expect(page.getByText("No active workout")).toBeHidden();
     });
@@ -46,9 +49,9 @@ test.describe("Workouts", () => {
       await page.clock.setSystemTime(twoDaysLater);
 
       // Away and back through the menu, so the page renders again with the moved clock.
-      await page.getByRole("link", { name: "Workout History" }).click();
+      await navLink(page, "history").click();
       await expect(page.getByRole("heading", { name: "Workout History" })).toBeVisible();
-      await page.getByRole("link", { name: "Current Workout" }).click();
+      await navLink(page, "workout").click();
 
       await expect(page.getByRole("heading", { name: "Current Workout" })).toBeVisible();
       await expect(cardDate).toHaveText(startDay!);
@@ -66,7 +69,7 @@ test.describe("Workouts", () => {
       });
 
       await page.getByRole("button", { name: "Start Workout" }).dblclick();
-      await expect(page.getByRole("button", { name: "Complete Workout" })).toBeVisible();
+      await expect(completeButton(page)).toBeVisible();
 
       // The second start got the same workout, not a refusal. Any refused mutation shows a toast
       // (role "alert") right after its answer arrives, whatever its message, so wait for both
@@ -93,7 +96,7 @@ test.describe("Workouts", () => {
 
       await openPage(page, "/current-workout");
 
-      await expect(page.getByRole("button", { name: "Complete Workout" })).toBeVisible();
+      await expect(completeButton(page)).toBeVisible();
       await expect(setRows(page, movement)).toHaveText(["Set 1 5 reps × 225 lb"]);
     });
 
@@ -200,7 +203,7 @@ test.describe("Workouts", () => {
       await startWorkout(page);
       await addSet(page, { movement, weight: 95, reps: 8 });
 
-      await page.getByRole("button", { name: "Complete Workout" }).click();
+      await completeButton(page).click();
 
       await expect(page.getByText("No active workout")).toBeVisible();
       // Completing was saved, not just hidden.
@@ -233,7 +236,7 @@ test.describe("Workouts", () => {
       await openPage(page, "/workout-history");
 
       await historyRows(page).filter({ hasText: "111 lb" }).getByRole("checkbox").check();
-      await page.getByRole("button", { name: "Delete Selected (1)" }).click();
+      await deleteSelectedButton(page, 1).click();
 
       await expect(historyRows(page)).toHaveText([/222 lb/]);
       // The deletion was saved, not just hidden.
@@ -250,7 +253,7 @@ test.describe("Workouts", () => {
 
       await historyRows(page).filter({ hasText: "0 lb" }).getByRole("checkbox").check();
       await historyRows(page).filter({ hasText: "25 lb" }).getByRole("checkbox").check();
-      await page.getByRole("button", { name: "Delete Selected (2)" }).click();
+      await deleteSelectedButton(page, 2).click();
 
       await expect(page.getByText("No completed workouts yet.")).toBeVisible();
       await openPage(page, "/workout-history");

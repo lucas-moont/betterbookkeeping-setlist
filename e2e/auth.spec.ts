@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { createAccount, openPage, signIn, signOut, signUpAsNewUser } from "./helpers";
+import { createAccount, mainNav, openPage, signIn, signOut, signUpAsNewUser } from "./helpers";
 
 test.describe("Auth", () => {
   test("a new account can sign out and sign back in with the same password", async ({ page }) => {
@@ -9,7 +9,7 @@ test.describe("Auth", () => {
 
     await signIn(page, email, "correct-horse-battery");
 
-    await expect(page.getByText("Logged in as")).toBeVisible();
+    await expect(mainNav(page)).toBeVisible();
   });
 
   test("signing in with the wrong password is rejected", async ({ page }) => {

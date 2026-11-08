@@ -49,7 +49,8 @@ export async function createMovement(page: Page, name: string, { muscleGroup, bo
   await page.getByLabel("Movement name").fill(name);
   if (muscleGroup) await page.getByLabel("Muscle group", { exact: true }).selectOption({ label: muscleGroup });
   if (bodyWeight) await page.getByLabel("Body-weight").check();
-  await page.getByRole("button", { name: "Add" }).click();
+  // Exact: a random token in a name can contain "add" ("Edit Bench Press 53fadd52").
+  await page.getByRole("button", { name: "Add", exact: true }).click();
   await expect(page.getByRole("listitem").filter({ hasText: name })).toBeVisible();
 }
 
@@ -60,11 +61,41 @@ export async function recordBodyWeight(page: Page, weight: number) {
   await expect(page.getByRole("status")).toContainText(/^(Recorded|Replaced)/);
 }
 
+// The same controls read differently on a phone (the "phone" project) and on a desktop: the
+// sidebar is a bottom bar, and long labels have a short form. These find them at either width.
+
+/** The navigation on screen: the sidebar on a desktop, the bottom bar on a phone. */
+export function mainNav(page: Page) {
+  return page.getByRole("navigation", { name: "Main" });
+}
+
+// The sidebar's labels and the bottom bar's short ones.
+const navLabels = {
+  workout: /^(Current )?Workout$/,
+  history: /^(Workout )?History$/,
+  movements: /^Movements$/,
+};
+
+/** A page's link in the navigation on screen, whichever its label at this width. */
+export function navLink(page: Page, to: keyof typeof navLabels) {
+  return mainNav(page).getByRole("link", { name: navLabels[to] });
+}
+
+/** The Current Workout's complete button: "Complete Workout", or "Complete" on a phone. */
+export function completeButton(page: Page) {
+  return page.getByRole("button", { name: /^Complete( Workout)?$/ });
+}
+
+/** The history's bulk delete button, with its count: "Delete Selected (n)", or "Delete (n)" on a phone. */
+export function deleteSelectedButton(page: Page, count: number) {
+  return page.getByRole("button", { name: new RegExp(`^Delete( Selected)? \\(${count}\\)$`) });
+}
+
 /** Starts a workout and waits until the Current Workout page shows it. */
 export async function startWorkout(page: Page) {
   await openPage(page, "/current-workout");
   await page.getByRole("button", { name: "Start Workout" }).click();
-  await expect(page.getByRole("button", { name: "Complete Workout" })).toBeVisible();
+  await expect(completeButton(page)).toBeVisible();
 }
 
 /** The Current Workout's Add button, which reads "Add" or "Add 3 sets", and nothing else that starts with Add. */
@@ -112,7 +143,7 @@ export function historyRows(page: Page) {
 
 /** Completes the Current Workout, which must already be open on the page. */
 export async function completeWorkout(page: Page) {
-  await page.getByRole("button", { name: "Complete Workout" }).click();
+  await completeButton(page).click();
   await expect(page.getByText("No active workout")).toBeVisible();
 }
 
@@ -135,12 +166,13 @@ export async function createAccount(page: Page, email: string, password: string)
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Create account" }).click();
-  await expect(page.getByText("Logged in as")).toBeVisible();
+  await expect(mainNav(page)).toBeVisible();
 }
 
 /** Logs out from the signed-in layout and waits until the sign-in page is interactive. */
 export async function signOut(page: Page) {
-  await page.getByRole("link", { name: "Log out" }).click();
+  // A button in both navigations.
+  await mainNav(page).getByRole("button", { name: "Log out" }).click();
   await expect(page).toHaveURL(/\/sign-in$/);
   await page.waitForLoadState("networkidle");
 }

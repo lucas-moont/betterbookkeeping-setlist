@@ -1,5 +1,7 @@
-/** The set form's field size: 44px tall on a phone, like the Movements form. */
-export const fieldClass = "h-11 text-base tabular-nums sm:h-10 sm:text-sm";
+import { touchField } from "@/components/ui/touch";
+
+/** The set form's number fields: the touch size, with digits that line up. */
+export const fieldClass = `${touchField} tabular-nums`;
 
 /**
  * Hides a number field's spin buttons: the fields are narrow, the arrows covered the placeholder, and

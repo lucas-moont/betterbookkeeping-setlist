@@ -5,6 +5,7 @@ import { setupRouterSsrQueryIntegration } from "@tanstack/react-router-ssr-query
 import { routeTree } from "./routeTree.gen";
 import { MutationCache, QueryClient, matchQuery, type QueryKey } from "@tanstack/react-query";
 import { toast } from "react-toastify";
+import { PagePending } from "@/components/page-pending";
 import type { ErrorCode } from "@/lib/error-codes";
 import { errorToastMessage, isFormError } from "@/lib/server-mutation";
 
@@ -33,6 +34,9 @@ export const getRouter = () => {
     routeTree,
     context: { queryClient },
     defaultPreload: "intent",
+    // A page whose loader is slow shows an outline of itself instead of the old page standing still.
+    // The default pendingMs (1 s) and pendingMinMs (0.5 s) keep fast navigations from flashing it.
+    defaultPendingComponent: PagePending,
   });
 
   setupRouterSsrQueryIntegration({

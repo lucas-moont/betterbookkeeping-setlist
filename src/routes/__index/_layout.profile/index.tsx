@@ -30,6 +30,8 @@ function ProfilePage() {
   // The confirmation of the last record or delete, shown under the form.
   const [notice, setNotice] = useState<string | null>(null);
   const latest = latestEntry(entries);
+  // Signed in for sure: the layout above redirects to sign-in otherwise.
+  const { user } = Route.useRouteContext();
 
   return (
     <div className="space-y-6">
@@ -76,6 +78,15 @@ function ProfilePage() {
             entries={entries}
             onDeleted={(date) => setNotice(`Deleted the entry for ${formatCalendarDate(date)}.`)}
           />
+        </CardContent>
+      </Card>
+
+      {/* On a desktop the sidebar's user block says who is signed in; phones have no sidebar, so the
+          Profile says it. */}
+      <Card className="md:hidden">
+        <CardContent className="pt-6 text-sm">
+          <p className="text-xs text-slate-500">Logged in as</p>
+          <p className="truncate font-medium text-slate-900">{user.name || user.email}</p>
         </CardContent>
       </Card>
     </div>

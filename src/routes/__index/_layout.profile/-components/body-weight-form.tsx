@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { touchField } from "@/components/ui/touch";
 import { bodyWeightSchema } from "@/lib/body-weight/entry";
 import type { BodyWeightEntry } from "@/lib/body-weight";
 import { recordBodyWeightMutationOptions } from "@/lib/body-weight/queries";
@@ -116,7 +117,7 @@ export function BodyWeightForm({ entries, today, notice, onNotice }: BodyWeightF
                     clearMessages();
                   }}
                   onBlur={field.handleBlur}
-                  className={cn("tabular-nums", error && "border-red-300")}
+                  className={cn(touchField, "tabular-nums", error && "border-red-300")}
                 />
               </div>
             );
@@ -145,7 +146,7 @@ export function BodyWeightForm({ entries, today, notice, onNotice }: BodyWeightF
                       clearMessages();
                     }}
                     onBlur={field.handleBlur}
-                    className={cn("pr-9 tabular-nums", error && "border-red-300")}
+                    className={cn(touchField, "pr-9 tabular-nums", error && "border-red-300")}
                   />
                   <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-500">
                     {weightUnit}
@@ -155,7 +156,7 @@ export function BodyWeightForm({ entries, today, notice, onNotice }: BodyWeightF
             );
           }}
         </form.Field>
-        <Button type="submit" disabled={recordMutation.isPending}>
+        <Button type="submit" disabled={recordMutation.isPending} className={touchField}>
           <Plus className="w-4 h-4" />
           {recordMutation.isPending ? "Recording..." : willReplace ? "Replace" : "Record"}
         </Button>
