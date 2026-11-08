@@ -59,6 +59,41 @@ test.describe("Bottom navigation on phones", () => {
   });
 });
 
+test.describe("Profile and fields on phones", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize(phone);
+  });
+
+  test("the Profile says who is signed in", async ({ page }) => {
+    await openPage(page, "/profile");
+
+    // In the page, not the sidebar's user block, which is hidden at this width. The fixture signs up as "E2E User".
+    const main = page.locator("main");
+    await expect(main.getByText("Logged in as")).toBeVisible();
+    await expect(main.getByText("E2E User", { exact: true })).toBeVisible();
+  });
+
+  // 44 px to tap, and 16 px text so iOS doesn't zoom in when a field gets the focus.
+  test("the body weight form and Complete are phone-sized", async ({ page }) => {
+    await openPage(page, "/profile");
+    for (const control of [
+      page.getByLabel("Date"),
+      page.getByLabel("Weight in pounds"),
+      page.getByRole("button", { name: "Record" }),
+    ]) {
+      expect(
+        await control.evaluate((el) => [el.getBoundingClientRect().height, getComputedStyle(el).fontSize]),
+      ).toEqual([44, "16px"]);
+    }
+
+    await openPage(page, "/current-workout");
+    await page.getByRole("button", { name: "Start Workout" }).click();
+    const complete = page.getByRole("button", { name: "Complete", exact: true });
+    await expect(complete).toBeVisible();
+    expect((await complete.boundingBox())!.height).toBe(44);
+  });
+});
+
 test("the desktop keeps the sidebar and has no bottom bar", async ({ page }) => {
   await openPage(page, "/current-workout");
 
@@ -66,4 +101,11 @@ test("the desktop keeps the sidebar and has no bottom bar", async ({ page }) => 
   await expect(nav.getByRole("link", { name: "Current Workout" })).toBeVisible();
   await expect(nav.getByRole("link", { name: "Workout", exact: true })).toBeHidden();
   await expect(nav.getByRole("button", { name: "Log out" })).toBeVisible();
+});
+
+test("the desktop Profile leaves who is signed in to the sidebar", async ({ page }) => {
+  await openPage(page, "/profile");
+
+  await expect(page.locator("main").getByText("Logged in as")).toBeHidden();
+  await expect(page.getByRole("navigation", { name: "Main" }).getByText("Logged in as")).toBeVisible();
 });
