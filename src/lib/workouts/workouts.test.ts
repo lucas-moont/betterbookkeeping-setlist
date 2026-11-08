@@ -589,6 +589,19 @@ describe("deleteWorkouts", () => {
     expect(await historyIds(user.id)).toEqual([]);
     expect(await historyIds(owner.id)).toEqual([othersWorkout]);
   });
+
+  test("never deletes the Current Workout, even when its id is in the list", async () => {
+    const user = await createUser(db);
+    const movement = await createMovement(db, user.id);
+    const { workout } = expectOk(await workouts.start(db, user.id));
+    const set = await logSet(user.id, movement.id);
+
+    await workouts.deleteWorkouts(db, user.id, [workout.id]);
+
+    const current = await workouts.get(db, user.id);
+    expect(current?.id).toBe(workout.id);
+    expect(current?.sets.map((s) => s.id)).toEqual([set.id]);
+  });
 });
 
 /** Logs a Set in the user's Current Workout, for tests where adding it is setup, not the subject. */

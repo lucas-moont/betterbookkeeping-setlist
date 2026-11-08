@@ -333,13 +333,15 @@ export const history = createServerOnlyFn(async (db: DbClient, userId: string): 
 });
 
 /**
- * Deletes the user's workouts with these ids, with their Sets. Ids of other users' workouts are
- * ignored. Two statements, not a transaction: db may already be a transaction client, and Prisma 7.2
+ * Deletes the user's completed workouts with these ids, with their Sets. Ids of other users'
+ * workouts and of the Current Workout are ignored: the history only lists completed ones, so a
+ * Current Workout's id here is a stale or forged request, and deleting it would lose logged Sets.
+ * Two statements, not a transaction: db may already be a transaction client, and Prisma 7.2
  * can't nest one (docs/research/testing-prisma-postgres.md).
  */
 export const deleteWorkouts = createServerOnlyFn(
   async (db: DbClient, userId: string, workoutIds: string[]): Promise<Result<object, never>> => {
-    const owned = { id: { in: workoutIds }, userId };
+    const owned = { id: { in: workoutIds }, userId, completedAt: { not: null } };
     await db.set.deleteMany({ where: { workout: owned } });
     await db.workout.deleteMany({ where: owned });
     return { ok: true };
