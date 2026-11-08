@@ -1,4 +1,9 @@
-import { queryOptions, type MutationFunctionContext } from "@tanstack/react-query";
+import {
+  infiniteQueryOptions,
+  queryOptions,
+  type InfiniteData,
+  type MutationFunctionContext,
+} from "@tanstack/react-query";
 import { ServerResultError } from "@/lib/error-codes";
 import { serverMutationOptions } from "@/lib/server-mutation";
 import { bodyWeightKeys } from "@/lib/body-weight/queries";
@@ -14,6 +19,7 @@ import {
   setCompletedServerFn,
   type SetCompletedChange,
 } from "./workouts.functions";
+import { historyPageSize, type HistoryCursor } from "./history-page";
 import type { WhenEmpty } from "./index";
 import type { SetDraft } from "./set-draft";
 
@@ -32,10 +38,24 @@ export const currentWorkoutQueryOptions = () =>
     queryFn: () => getCurrentWorkoutServerFn(),
   });
 
-export const workoutHistoryQueryOptions = () =>
-  queryOptions({
-    queryKey: workoutKeys.history,
-    queryFn: () => getWorkoutHistoryServerFn(),
+type HistoryPage = Awaited<ReturnType<typeof getWorkoutHistoryServerFn>>;
+
+// The screen lists the loaded pages as one list. A function defined once, so the query only runs it
+// again when the pages change, not on every render.
+const loadedWorkouts = (data: InfiniteData<HistoryPage, HistoryCursor | undefined>) =>
+  data.pages.flatMap((page) => page.workouts);
+
+// The history, a page at a time: each page brings the cursor of the next, null after the last. The
+// page size is in the key, so the e2e's small pages never share a cache entry with the default.
+// workoutKeys.history stays the prefix, so every mutation that makes the history stale still does;
+// a refetch then reloads every loaded page in order, from the first cursor on.
+export const workoutHistoryInfiniteQueryOptions = (pageSize = historyPageSize) =>
+  infiniteQueryOptions({
+    queryKey: [...workoutKeys.history, { pageSize }],
+    queryFn: ({ pageParam }) => getWorkoutHistoryServerFn({ data: { cursor: pageParam, limit: pageSize } }),
+    initialPageParam: undefined as HistoryCursor | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    select: loadedWorkouts,
   });
 
 export const startWorkoutMutationOptions = () =>

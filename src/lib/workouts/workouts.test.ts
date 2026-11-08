@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../../../prisma/generated/client/client";
 import { getServerSidePrismaClient } from "@/lib/db.server";
@@ -7,6 +7,7 @@ import { createLegacyWorkout, createMovement, createUser } from "@/test/factorie
 import { testDatabaseUrl } from "@/test/test-database-url";
 import * as movements from "@/lib/movements";
 import * as workouts from "@/lib/workouts";
+import { historyPageSize, maxHistoryPageSize } from "@/lib/workouts/history-page";
 
 // The workouts module tested through its interface against the real test database (ADR 0008).
 // Every test creates its own users, so it never sees another test's rows, even with the other test
@@ -211,7 +212,7 @@ describe("addSet", () => {
     const result = await workouts.addSet(db, user.id, { movementId: movement.id, reps: 8, weight: 135 }, "UTC");
 
     expect(result).toEqual({ ok: false, reason: "no-current-workout" });
-    expect((await workouts.history(db, user.id))[0]?.sets).toEqual([set]);
+    expect((await workouts.history(db, user.id)).workouts[0]?.sets).toEqual([set]);
   });
 
   test("fails on a Movement that doesn't exist, and adds nothing", async () => {
@@ -345,7 +346,7 @@ describe("setCompleted", () => {
     expectOk(await workouts.complete(db, user.id));
 
     expect(await workouts.setCompleted(db, user.id, set.id, false)).toEqual({ ok: false, reason: "set-not-found" });
-    expect((await workouts.history(db, user.id))[0].sets).toEqual([set]);
+    expect((await workouts.history(db, user.id)).workouts[0].sets).toEqual([set]);
   });
 
   // Same answer as for an id that doesn't exist, so nobody learns which Set ids belong to others.
@@ -374,7 +375,7 @@ describe("setCompleted", () => {
 
     expectOk(await workouts.complete(db, user.id));
 
-    expect((await workouts.history(db, user.id))[0].sets).toEqual([done, { ...notDone, completed: false }]);
+    expect((await workouts.history(db, user.id)).workouts[0].sets).toEqual([done, { ...notDone, completed: false }]);
   });
 });
 
@@ -407,7 +408,7 @@ describe("Muscle Groups", () => {
 
     expect((await workouts.get(db, user.id))?.muscleGroups).toEqual(["CHEST"]);
     expectOk(await workouts.complete(db, user.id));
-    expect((await workouts.history(db, user.id))[0].muscleGroups).toEqual(["CHEST"]);
+    expect((await workouts.history(db, user.id)).workouts[0].muscleGroups).toEqual(["CHEST"]);
   });
 
   test("follow a Movement's new Muscle Group, in old Workouts too", async () => {
@@ -419,7 +420,7 @@ describe("Muscle Groups", () => {
 
     expectOk(await movements.setMuscleGroup(db, user.id, pullUp.id, "BACK"));
 
-    expect((await workouts.history(db, user.id))[0].muscleGroups).toEqual(["BACK"]);
+    expect((await workouts.history(db, user.id)).workouts[0].muscleGroups).toEqual(["BACK"]);
   });
 });
 
@@ -446,7 +447,7 @@ describe("removeSet", () => {
 
     expect(await workouts.removeSet(db, user.id, set.id)).toEqual({ ok: false, reason: "set-not-found" });
 
-    expect((await workouts.history(db, user.id))[0]?.sets).toEqual([set]);
+    expect((await workouts.history(db, user.id)).workouts[0]?.sets).toEqual([set]);
   });
 
   // Same answer as for a Set that doesn't exist, so nobody learns which ids belong to others.
@@ -487,7 +488,7 @@ describe("complete", () => {
     expect(await workouts.complete(db, user.id)).toEqual({ ok: true });
 
     expect(await workouts.get(db, user.id)).toBeNull();
-    expect(await workouts.history(db, user.id)).toEqual([
+    expect((await workouts.history(db, user.id)).workouts).toEqual([
       { id: workout.id, startedAt: workout.startedAt, completedAt: expect.any(Date), sets: [set], muscleGroups: [] },
     ]);
   });
@@ -496,7 +497,7 @@ describe("complete", () => {
     const user = await createUser(db);
 
     expect(await workouts.complete(db, user.id)).toEqual({ ok: false, reason: "no-current-workout" });
-    expect(await workouts.history(db, user.id)).toEqual([]);
+    expect((await workouts.history(db, user.id)).workouts).toEqual([]);
   });
 
   // A double click on "Complete Workout" must not overwrite when the workout was completed.
@@ -504,14 +505,14 @@ describe("complete", () => {
     const user = await createUser(db);
     await workouts.start(db, user.id);
     await workouts.complete(db, user.id, { whenEmpty: "save" });
-    const [completed] = await workouts.history(db, user.id);
+    const [completed] = (await workouts.history(db, user.id)).workouts;
 
     expect(await workouts.complete(db, user.id, { whenEmpty: "save" })).toEqual({
       ok: false,
       reason: "no-current-workout",
     });
 
-    expect(await workouts.history(db, user.id)).toEqual([completed]);
+    expect((await workouts.history(db, user.id)).workouts).toEqual([completed]);
   });
 
   test("leaves another user's Current Workout open", async () => {
@@ -533,7 +534,7 @@ describe("complete", () => {
       expect(await workouts.complete(db, user.id)).toEqual({ ok: false, reason: "empty-workout" });
 
       expect(await workouts.get(db, user.id)).toEqual(workout);
-      expect(await workouts.history(db, user.id)).toEqual([]);
+      expect((await workouts.history(db, user.id)).workouts).toEqual([]);
     });
 
     test("returns empty-workout when every Set is a Planned Set", async () => {
@@ -556,7 +557,7 @@ describe("complete", () => {
       expect(await workouts.complete(db, user.id, { whenEmpty: "save" })).toEqual({ ok: true });
 
       expect(await workouts.get(db, user.id)).toBeNull();
-      const [visit] = await workouts.history(db, user.id);
+      const [visit] = (await workouts.history(db, user.id)).workouts;
       expect(visit.id).toBe(workout.id);
       expect(visit.sets.map(({ id, completed }) => ({ id, completed }))).toEqual([{ id: set.id, completed: false }]);
     });
@@ -570,7 +571,7 @@ describe("complete", () => {
       expect(await workouts.complete(db, user.id, { whenEmpty: "discard" })).toEqual({ ok: true });
 
       expect(await workouts.get(db, user.id)).toBeNull();
-      expect(await workouts.history(db, user.id)).toEqual([]);
+      expect((await workouts.history(db, user.id)).workouts).toEqual([]);
       // The Set went with the Workout: it can't be found to complete again.
       expect(await workouts.setCompleted(db, user.id, set.id, true)).toEqual({ ok: false, reason: "set-not-found" });
     });
@@ -602,7 +603,7 @@ describe("complete", () => {
 
       expect(await workouts.complete(db, user.id)).toEqual({ ok: true });
 
-      const [completed] = await workouts.history(db, user.id);
+      const [completed] = (await workouts.history(db, user.id)).workouts;
       expect(completed.id).toBe(workout.id);
       expect(completed.sets.map(({ id, completed }) => ({ id, completed }))).toEqual([
         { id: planned.id, completed: false },
@@ -695,7 +696,123 @@ describe("history", () => {
 
     expect(await historyIds(user.id)).toEqual([second, first]);
   });
+
+  describe("paging", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    test("gives 20 workouts a page, then the rest, with no cursor after the last page", async () => {
+      const user = await createUser(db);
+      const ids: string[] = [];
+      for (let minute = 0; minute < historyPageSize + 5; minute++)
+        ids.push(await completeEmptyWorkoutAt(user.id, minute));
+      const newestFirst = ids.reverse();
+
+      const first = await workouts.history(db, user.id);
+      expect(first.workouts.map((w) => w.id)).toEqual(newestFirst.slice(0, historyPageSize));
+      const last = first.workouts[historyPageSize - 1];
+      expect(first.nextCursor).toEqual({ completedAt: last.completedAt.toISOString(), id: last.id });
+
+      const second = await workouts.history(db, user.id, { cursor: first.nextCursor! });
+      expect(second.workouts.map((w) => w.id)).toEqual(newestFirst.slice(historyPageSize));
+      expect(second.nextCursor).toBeNull();
+    });
+
+    test("has no cursor when the last page is exactly full", async () => {
+      const user = await createUser(db);
+      for (let minute = 0; minute < 2; minute++) await completeEmptyWorkoutAt(user.id, minute);
+
+      expect((await workouts.history(db, user.id, { limit: 2 })).nextCursor).toBeNull();
+    });
+
+    // Workouts completed in the same millisecond: the id breaks the tie, so a page boundary between
+    // them neither skips one nor shows one twice.
+    test("orders workouts completed at the same time by id, across pages", async () => {
+      const user = await createUser(db);
+      const ids: string[] = [];
+      for (let i = 0; i < 5; i++) ids.push(await completeEmptyWorkoutAt(user.id, 0));
+
+      expect(await pagedIds(user.id, 2)).toEqual([...ids].sort().reverse());
+    });
+
+    test("never shows another user's workouts or the Current Workout", async () => {
+      const user = await createUser(db);
+      const otherUser = await createUser(db);
+      const own = [await completeEmptyWorkoutAt(user.id, 0), await completeEmptyWorkoutAt(user.id, 2)];
+      await completeEmptyWorkoutAt(otherUser.id, 1);
+      await completeEmptyWorkoutAt(otherUser.id, 3);
+      await workouts.start(db, user.id);
+
+      expect(await pagedIds(user.id, 1)).toEqual([own[1], own[0]]);
+    });
+
+    // The server function validates limit, but history doesn't rely on it: a take of 0 would always
+    // look like a last page, and a negative one would read from the oldest workout.
+    test("reads a limit below 1 as 1, newest first", async () => {
+      const user = await createUser(db);
+      await completeEmptyWorkoutAt(user.id, 0);
+      const newest = await completeEmptyWorkoutAt(user.id, 1);
+
+      for (const limit of [0, -3]) {
+        const page = await workouts.history(db, user.id, { limit });
+        expect(page.workouts.map((w) => w.id)).toEqual([newest]);
+        expect(page.nextCursor).not.toBeNull();
+      }
+    });
+
+    test("never gives more than the largest page", async () => {
+      const user = await createUser(db);
+      for (let minute = 0; minute <= maxHistoryPageSize; minute++) await completeEmptyWorkoutAt(user.id, minute);
+
+      const page = await workouts.history(db, user.id, { limit: 1000 });
+
+      expect(page.workouts).toHaveLength(maxHistoryPageSize);
+      expect(page.nextCursor).not.toBeNull();
+    });
+
+    test("pages a Gym Visit like any workout", async () => {
+      const user = await createUser(db);
+      const movement = await createMovement(db, user.id);
+      setNow(0);
+      const { workout: trained } = expectOk(await workouts.start(db, user.id));
+      await logSet(user.id, movement.id);
+      expectOk(await workouts.complete(db, user.id));
+      const visit = await completeEmptyWorkoutAt(user.id, 1);
+
+      const first = await workouts.history(db, user.id, { limit: 1 });
+      expect(first.workouts.map((w) => w.id)).toEqual([visit]);
+      const second = await workouts.history(db, user.id, { limit: 1, cursor: first.nextCursor! });
+      expect(second.workouts.map((w) => w.id)).toEqual([trained.id]);
+      expect(second.nextCursor).toBeNull();
+    });
+  });
 });
+
+/** Freezes the clock (only Date, so the database driver's timers keep running) at a minute of 2026-11-01 UTC. */
+function setNow(minute: number) {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(Date.UTC(2026, 10, 1, 0, minute)));
+}
+
+/** Completes a Gym Visit at that minute, so a test picks its completedAt. */
+async function completeEmptyWorkoutAt(userId: string, minute: number) {
+  setNow(minute);
+  return completeEmptyWorkout(userId);
+}
+
+/** Every page of the user's history, `limit` at a time, as one list of ids. */
+async function pagedIds(userId: string, limit: number) {
+  const ids: string[] = [];
+  let cursor: workouts.HistoryCursor | undefined;
+  do {
+    const page = await workouts.history(db, userId, { cursor, limit });
+    expect(page.workouts.length).toBeLessThanOrEqual(limit);
+    ids.push(...page.workouts.map((w) => w.id));
+    cursor = page.nextCursor ?? undefined;
+  } while (cursor);
+  return ids;
+}
 
 describe("Set order", () => {
   test("get and history return the Sets in the order they were added", async () => {
@@ -708,7 +825,9 @@ describe("Set order", () => {
 
     expect((await workouts.get(db, user.id))?.sets.map((set) => set.id)).toEqual(added.map((set) => set.id));
     expectOk(await workouts.complete(db, user.id));
-    expect((await workouts.history(db, user.id))[0].sets.map((set) => set.id)).toEqual(added.map((set) => set.id));
+    expect((await workouts.history(db, user.id)).workouts[0].sets.map((set) => set.id)).toEqual(
+      added.map((set) => set.id),
+    );
   });
 });
 
@@ -723,7 +842,7 @@ describe("deleteWorkouts", () => {
 
     expect(await workouts.deleteWorkouts(db, user.id, [withSets.id, empty])).toEqual({ ok: true });
 
-    expect(await workouts.history(db, user.id)).toEqual([]);
+    expect((await workouts.history(db, user.id)).workouts).toEqual([]);
   });
 
   test("keeps the workouts that aren't in the list", async () => {
@@ -776,7 +895,7 @@ async function logPlannedSet(userId: string, movementId: string) {
 }
 
 async function historyIds(userId: string) {
-  return (await workouts.history(db, userId)).map((workout) => workout.id);
+  return (await workouts.history(db, userId)).workouts.map((workout) => workout.id);
 }
 
 /** Completes a workout with no Sets: a Gym Visit. */
