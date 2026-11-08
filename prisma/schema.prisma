@@ -66,17 +66,25 @@ model Workout {
 }
 
 model Set {
-  id          String    @id @default(uuid())
-  workoutId   String
-  workout     Workout   @relation(fields: [workoutId], references: [id])
-  movementId  String
-  movement    Movement  @relation(fields: [movementId], references: [id])
-  reps        Int
-  weight      Decimal   @db.Decimal(6, 2)
+  id              String    @id @default(uuid())
+  workoutId       String
+  workout         Workout   @relation(fields: [workoutId], references: [id])
+  movementId      String
+  movement        Movement  @relation(fields: [movementId], references: [id])
+  reps            Int
+  weight          Decimal   @db.Decimal(6, 2)
+  // Fixed when the Set is created, from its Movement's flag at that moment: it decides whether the
+  // Set takes a Body Weight Snapshot, never the Movement's current flag (ADR 0003).
+  isBodyWeight    Boolean   @default(false)
+  // Signed: positive is extra load, negative is assistance. Only on body-weight Sets, always with a
+  // note, and never below -weight, so Load is never negative. CHECK constraints in the
+  // set_body_weight_and_added_weight migration enforce all three (ADR 0003).
+  addedWeight     Decimal?  @db.Decimal(6, 2)
+  addedWeightNote String?   @db.VarChar(60)
   // Sets are listed by createdAt, then id (ADR 0007). Legacy sets got the migration time.
-  createdAt   DateTime  @default(now())
+  createdAt       DateTime  @default(now())
   // When the Set was completed; NULL makes it a Planned Set, which counts toward nothing (ADR 0011).
-  completedAt DateTime?
+  completedAt     DateTime?
 
   @@index([workoutId])
   @@index([movementId])

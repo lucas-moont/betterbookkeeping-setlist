@@ -113,12 +113,17 @@ export const setMuscleGroup = createServerOnlyFn(
 );
 
 /**
- * Checks that the Movement exists and belongs to the user. Another user's Movement gets the same
- * movement-not-found as one that doesn't exist, so callers can't reveal which ids are taken.
+ * Checks that the Movement exists and belongs to the user, and returns it. Another user's Movement
+ * gets the same movement-not-found as one that doesn't exist, so callers can't reveal which ids are
+ * taken.
  */
 export const ensureOwned = createServerOnlyFn(
-  async (db: DbClient, userId: string, movementId: string): Promise<Result<object, "movement-not-found">> => {
-    const owned = await db.movement.count({ where: { id: movementId, userId } });
-    return owned > 0 ? { ok: true } : { ok: false, reason: "movement-not-found" };
+  async (
+    db: DbClient,
+    userId: string,
+    movementId: string,
+  ): Promise<Result<{ movement: Movement }, "movement-not-found">> => {
+    const movement = await db.movement.findFirst({ where: { id: movementId, userId }, select: movementSelect });
+    return movement ? { ok: true, movement } : { ok: false, reason: "movement-not-found" };
   },
 );

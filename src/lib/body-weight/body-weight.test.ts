@@ -139,14 +139,14 @@ describe("remove", () => {
     expect(await bodyWeight.list(db, otherUser.id)).toEqual([{ date: "2026-11-03", weight: 150 }]);
   });
 
-  // A Completed Set keeps the weight it copied (ADR 0003), so deleting an entry rewrites no history.
-  // Until body-weight sets exist this guards the shape; it starts to matter when sets read the entry.
+  // A Completed Set keeps the Body Weight Snapshot it copied (ADR 0003), so deleting an entry
+  // rewrites no history. The form's weight differs from the entry, so only the snapshot can give 172.4.
   test("leaves a Completed Set with that body weight unchanged", async () => {
     const user = await createUser(db);
-    const movement = await createMovement(db, user.id, { name: "Pull-up" });
+    const movement = await createMovement(db, user.id, { name: "Pull-up", isBodyWeight: true });
     expectOk(await bodyWeight.record(db, user.id, { date: "2026-11-03", weight: 172.4 }, "UTC"));
     expectOk(await workouts.start(db, user.id));
-    expectOk(await workouts.addSet(db, user.id, { movementId: movement.id, reps: 8, weight: 172.4 }));
+    expectOk(await workouts.addSet(db, user.id, { movementId: movement.id, reps: 8, weight: 0 }, "UTC"));
 
     expectOk(await bodyWeight.remove(db, user.id, "2026-11-03"));
 

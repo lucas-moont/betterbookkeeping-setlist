@@ -2,6 +2,9 @@ import { createServerOnlyFn } from "@tanstack/react-start";
 import type { Prisma } from "../../../prisma/generated/client/client";
 import type { DbClient } from "@/lib/db.server";
 import type { Result } from "@/lib/error-codes";
+import * as bodyWeight from "@/lib/body-weight";
+import { bodyWeightSchema } from "@/lib/body-weight/entry";
+import { todayIsoDate } from "@/lib/format";
 import { ensureOwned, movementSelect, type Movement } from "@/lib/movements";
 import { muscleGroups, type MuscleGroup } from "@/lib/movements/muscle-group";
 import { load } from "@/lib/weight";
@@ -14,7 +17,13 @@ import type { SetDraft } from "./set-draft";
 export type WorkoutSet = {
   id: string;
   reps: number;
+  /** For a body-weight Set: its Body Weight Snapshot, or the Latest Body Weight while it is planned (ADR 0003). */
   weight: number;
+  /** Signed: positive is extra load, negative is assistance. Only on body-weight Sets, always with its note. */
+  addedWeight: number | null;
+  addedWeightNote: string | null;
+  /** Whether the Set was logged as body-weight, fixed when it was added; not the Movement's current flag. */
+  isBodyWeight: boolean;
   load: number;
   /** False for a Planned Set, which counts toward nothing (ADR 0011). */
   completed: boolean;
@@ -39,19 +48,43 @@ const workoutSelect = {
   sets: {
     // createdAt, then id: Sets added in one request share a createdAt (ADR 0007, ADR 0011).
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    select: { id: true, reps: true, weight: true, completedAt: true, movement: { select: movementSelect } },
+    select: {
+      id: true,
+      reps: true,
+      weight: true,
+      isBodyWeight: true,
+      addedWeight: true,
+      addedWeightNote: true,
+      completedAt: true,
+      movement: { select: movementSelect },
+    },
   },
 } satisfies Prisma.WorkoutSelect;
 
 type SetRow = Prisma.SetGetPayload<{ select: typeof workoutSelect.sets.select }>;
 
-// The one place a stored Set becomes what callers see. Weight comes back as a Prisma Decimal, which
-// a server function can't serialize, so it becomes a number here (ADR 0002). When the Set was
+// The one place a stored Set becomes what callers see. Weights come back as Prisma Decimals, which
+// a server function can't serialize, so they become numbers here (ADR 0002). When the Set was
 // completed stays on the server; callers only learn whether it is (ADR 0011).
-function toSet(row: SetRow): WorkoutSet {
-  const weight = row.weight.toNumber();
+//
+// A Planned body-weight Set has no Body Weight Snapshot: its stored weight is the last one it took,
+// and it shows latestBodyWeight instead, when the caller passes one (ADR 0011).
+function toSet(row: SetRow, latestBodyWeight: number | null = null): WorkoutSet {
   const completed = row.completedAt !== null;
-  return { id: row.id, reps: row.reps, weight, load: load({ weight }), completed, movement: row.movement };
+  const showsLatest = row.isBodyWeight && !completed && latestBodyWeight !== null;
+  const weight = showsLatest ? latestBodyWeight : row.weight.toNumber();
+  const addedWeight = row.addedWeight?.toNumber() ?? null;
+  return {
+    id: row.id,
+    reps: row.reps,
+    weight,
+    addedWeight,
+    addedWeightNote: row.addedWeightNote,
+    isBodyWeight: row.isBodyWeight,
+    load: load({ weight, addedWeight }),
+    completed,
+    movement: row.movement,
+  };
 }
 
 /**
@@ -66,8 +99,8 @@ function muscleGroupsOf(sets: WorkoutSet[]): MuscleGroup[] {
 type WorkoutRow = Prisma.WorkoutGetPayload<{ select: typeof workoutSelect }>;
 
 // What get and history both build from a stored Workout; each adds its own completedAt.
-function toWorkout(row: WorkoutRow): WorkoutContent {
-  const sets = row.sets.map(toSet);
+function toWorkout(row: WorkoutRow, latestBodyWeight: number | null = null): WorkoutContent {
+  const sets = row.sets.map((set) => toSet(set, latestBodyWeight));
   return { id: row.id, startedAt: row.startedAt, sets, muscleGroups: muscleGroupsOf(sets) };
 }
 
@@ -101,6 +134,15 @@ const currentWorkoutWhere = (userId: string) => ({ userId, completedAt: null });
 // A Set of the user's Current Workout: the only Sets removeSet and setCompleted may touch.
 const currentWorkoutSetWhere = (userId: string, setId: string) => ({ id: setId, workout: currentWorkoutWhere(userId) });
 
+/**
+ * Whether the assistance in an Added Weight is more than the body weight, which would make Load
+ * negative (ADR 0003). The Set_load_not_negative CHECK refuses it too; checking first turns it into
+ * an expected failure instead of a database error.
+ */
+function assistanceExceeds(weight: number, addedWeight: number | null | undefined): boolean {
+  return addedWeight != null && load({ weight, addedWeight }) < 0;
+}
+
 async function findCurrentWorkoutId(db: DbClient, userId: string): Promise<string | null> {
   const workout = await db.workout.findFirst({
     where: currentWorkoutWhere(userId),
@@ -115,7 +157,12 @@ export const get = createServerOnlyFn(async (db: DbClient, userId: string): Prom
     where: currentWorkoutWhere(userId),
     select: workoutSelect,
   });
-  return workout && { ...toWorkout(workout), completedAt: null };
+  if (!workout) return null;
+  // A Planned body-weight Set shows the Latest Body Weight of the moment, so it is only read when
+  // the Workout has one (ADR 0011).
+  const showsBodyWeight = workout.sets.some((set) => set.isBodyWeight && set.completedAt === null);
+  const latest = showsBodyWeight ? await bodyWeight.latest(db, userId) : null;
+  return { ...toWorkout(workout, latest?.weight ?? null), completedAt: null };
 });
 
 /**
@@ -123,23 +170,72 @@ export const get = createServerOnlyFn(async (db: DbClient, userId: string): Prom
  * README's "log every set as you go" (ADR 0011). They come back in the order the reads list them.
  * The draft must already be valid (setDraftSchema). A Movement of another user gets the same
  * movement-not-found as one that doesn't exist (ADR 0001).
+ *
+ * A Set of a Body-weight Movement takes the Latest Body Weight as its Weight, never the one sent
+ * (ADR 0003). With no Body Weight Entry yet, the sent weight is the user's body weight: it becomes
+ * the snapshot and today's entry in the user's time zone, returned as recordedBodyWeight. Run it in a
+ * transaction, so the entry and the Sets are saved together or not at all.
  */
 export const addSet = createServerOnlyFn(
   async (
     db: DbClient,
     userId: string,
-    { movementId, reps, weight, count = 1 }: SetDraft,
-  ): Promise<Result<{ sets: WorkoutSet[] }, "no-current-workout" | "movement-not-found">> => {
+    { movementId, reps, weight, count = 1, addedWeight, addedWeightNote }: SetDraft,
+    timeZone: string,
+  ): Promise<
+    Result<
+      { sets: WorkoutSet[]; recordedBodyWeight: bodyWeight.BodyWeightEntry | null },
+      | "no-current-workout"
+      | "movement-not-found"
+      | "added-weight-not-allowed"
+      | "body-weight-required"
+      | "assistance-exceeds-body-weight"
+      | "body-weight-date-in-future"
+    >
+  > => {
     const workoutId = await findCurrentWorkoutId(db, userId);
     if (!workoutId) return { ok: false, reason: "no-current-workout" };
     // Movements are never deleted, so nothing can change between this check and the insert.
     const owned = await ensureOwned(db, userId, movementId);
     if (!owned.ok) return owned;
+    // The Set is body-weight if its Movement is right now, and stays so whatever the flag does later.
+    const { isBodyWeight } = owned.movement;
+    // Any other Set's weight is what's on the bar, so there is nothing to add to it.
+    if (!isBodyWeight && addedWeight !== undefined) return { ok: false, reason: "added-weight-not-allowed" };
+
+    // A body-weight Set's Weight is its Body Weight Snapshot: the Latest Body Weight, never what the
+    // form sent (ADR 0003). Without one, the form sent the user's body weight.
+    const latest = isBodyWeight ? await bodyWeight.latest(db, userId) : null;
+    const firstBodyWeight = isBodyWeight && !latest;
+    if (firstBodyWeight && !bodyWeightSchema.safeParse(weight).success) {
+      return { ok: false, reason: "body-weight-required" };
+    }
+    const setWeight = latest?.weight ?? weight;
+    if (assistanceExceeds(setWeight, addedWeight)) return { ok: false, reason: "assistance-exceeds-body-weight" };
+
+    // Every refusal comes before the first write, so none leaves an entry behind.
+    let recordedBodyWeight: bodyWeight.BodyWeightEntry | null = null;
+    if (firstBodyWeight) {
+      const recorded = await bodyWeight.record(db, userId, { date: todayIsoDate(timeZone), weight }, timeZone);
+      // It records today, so record()'s future-date check passes; its reason is still passed on.
+      if (!recorded.ok) return recorded;
+      recordedBodyWeight = recorded.entry;
+    }
 
     // One INSERT: all of them get in, or none. They share one moment, so they are read back with the
     // reads' own order, which falls back to id.
     const now = new Date();
-    const set = { workoutId, movementId, reps, weight, createdAt: now, completedAt: now };
+    const set = {
+      workoutId,
+      movementId,
+      reps,
+      weight: setWeight,
+      isBodyWeight,
+      addedWeight: addedWeight ?? null,
+      addedWeightNote: addedWeightNote ?? null,
+      createdAt: now,
+      completedAt: now,
+    };
     const added = await db.set.createManyAndReturn({
       data: Array.from({ length: count }, () => set),
       select: { id: true },
@@ -149,26 +245,54 @@ export const addSet = createServerOnlyFn(
       orderBy: workoutSelect.sets.orderBy,
       select: workoutSelect.sets.select,
     });
-    return { ok: true, sets: rows.map(toSet) };
+    return { ok: true, sets: rows.map((row) => toSet(row)), recordedBodyWeight };
   },
 );
 
 /**
  * Completes a Set of the user's Current Workout, or un-completes it, which makes it a Planned Set
  * (ADR 0011). A Set already in that state is left alone, so a double click keeps when it was
- * completed. A Set of a Completed Workout or of another user gets the same set-not-found as one that
- * doesn't exist, so the answer never reveals it exists.
+ * completed, and its Body Weight Snapshot. A Set of a Completed Workout or of another user gets the
+ * same set-not-found as one that doesn't exist, so the answer never reveals it exists.
+ *
+ * A Set logged as body-weight takes a new snapshot when it becomes completed: the Latest Body
+ * Weight, or the weight it had when the user has no entry left. Its Added Weight is checked against
+ * that snapshot, so assistance now above the body weight gets assistance-exceeds-body-weight and the
+ * Set stays planned (ADR 0003).
  */
 export const setCompleted = createServerOnlyFn(
-  async (db: DbClient, userId: string, setId: string, completed: boolean): Promise<Result<object, "set-not-found">> => {
+  async (
+    db: DbClient,
+    userId: string,
+    setId: string,
+    completed: boolean,
+  ): Promise<Result<object, "set-not-found" | "assistance-exceeds-body-weight">> => {
     const ownSet = currentWorkoutSetWhere(userId, setId);
-    // Only a Set in the other state changes, and the ownership check is in the same statement.
+    // isBodyWeight and addedWeight never change once the Set exists, so reading them first is safe.
+    const set = await db.set.findFirst({
+      where: ownSet,
+      select: { completedAt: true, isBodyWeight: true, addedWeight: true },
+    });
+    if (!set) return { ok: false, reason: "set-not-found" };
+    if ((set.completedAt !== null) === completed) return { ok: true };
+
+    // The per-set flag decides, never the Movement's current one (ADR 0003).
+    const snapshot = completed && set.isBodyWeight ? (await bodyWeight.latest(db, userId))?.weight : undefined;
+    // Checked against the very weight written below, so the Set_load_not_negative CHECK can't fire,
+    // even if a Body Weight Entry is recorded in between.
+    if (snapshot !== undefined && assistanceExceeds(snapshot, set.addedWeight?.toNumber())) {
+      return { ok: false, reason: "assistance-exceeds-body-weight" };
+    }
+
+    // Only a Set still in the other state changes, so a concurrent change between the read and this
+    // write is kept.
     const { count } = await db.set.updateMany({
       where: { ...ownSet, completedAt: completed ? null : { not: null } },
-      data: { completedAt: completed ? new Date() : null },
+      data: { completedAt: completed ? new Date() : null, ...(snapshot !== undefined && { weight: snapshot }) },
     });
     if (count > 0) return { ok: true };
-    // Nothing changed: either the Set was already in that state, or it isn't the user's to change.
+    // Nothing changed: another request already put the Set in that state, or removed it (or completed
+    // its Workout) since the read.
     const exists = await db.set.count({ where: ownSet });
     return exists > 0 ? { ok: true } : { ok: false, reason: "set-not-found" };
   },

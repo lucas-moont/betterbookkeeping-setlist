@@ -6,8 +6,18 @@ export function uniqueToken() {
   return randomUUID().slice(0, 8);
 }
 
-/** A set as the Current Workout form takes it. */
-export type NewSet = { movement: string; weight: number; reps: number };
+/**
+ * A set as the Current Workout form takes it. `count` identical sets are added at once (1 by default).
+ * A body-weight movement with a body weight on record has its weight locked, so `weight` is left out;
+ * `added` is its Added Weight.
+ */
+export type NewSet = {
+  movement: string;
+  weight?: number;
+  reps: number;
+  count?: number;
+  added?: { sign: "extra" | "assistance"; amount: number; note: string };
+};
 
 /** Loads a page from the server and waits for hydration. Returns the server's response. */
 export async function openPage(page: Page, path: string) {
@@ -30,6 +40,13 @@ export async function createMovement(page: Page, name: string, { muscleGroup, bo
   await expect(page.getByRole("listitem").filter({ hasText: name })).toBeVisible();
 }
 
+/** Records a body weight from the Profile, which must already be open, on the form's date (today unless the test picked one). */
+export async function recordBodyWeight(page: Page, weight: number) {
+  await page.getByLabel("Weight in pounds").fill(String(weight));
+  await page.getByRole("button", { name: /^(Record|Replace)$/ }).click();
+  await expect(page.getByRole("status")).toContainText(/^(Recorded|Replaced)/);
+}
+
 /** Starts a workout and waits until the Current Workout page shows it. */
 export async function startWorkout(page: Page) {
   await openPage(page, "/current-workout");
@@ -37,18 +54,42 @@ export async function startWorkout(page: Page) {
   await expect(page.getByRole("button", { name: "Complete Workout" })).toBeVisible();
 }
 
-/** Adds a set to the Current Workout, which must already be open on the page. */
+/** The Current Workout's Add button, which reads "Add" or "Add 3 sets", and nothing else that starts with Add. */
+export function addSetButton(page: Page) {
+  return page.getByRole("button", { name: /^Add( \d+ sets)?$/ });
+}
+
+/** The rows of one Movement's sets in the Current Workout, in the order they were added. */
+export function setRows(page: Page, movement: string) {
+  return page.getByRole("region", { name: movement, exact: true }).getByRole("listitem");
+}
+
+/** Adds a set (or `count` identical sets) to the Current Workout, which must already be open on the page. */
 export async function addSet(page: Page, set: NewSet) {
+  const count = set.count ?? 1;
+  const rows = setRows(page, set.movement);
+  const before = await rows.count();
   await page.getByLabel("Movement", { exact: true }).selectOption({ label: set.movement });
-  await page.getByLabel("Weight").fill(String(set.weight));
+  // "Body weight" is the same field for a body-weight movement with no body weight yet.
+  if (set.weight !== undefined) await page.getByLabel(/^(Body weight|Weight)$/).fill(String(set.weight));
   await page.getByLabel("Reps").fill(String(set.reps));
-  await page.getByRole("button", { name: "Add" }).click();
-  await expect(
-    page
-      .getByRole("listitem")
-      .filter({ hasText: set.movement })
-      .filter({ hasText: `${set.reps} reps × ${set.weight} lb` }),
-  ).toBeVisible();
+  await page.getByLabel("Number of sets").fill(String(count));
+  if (set.added) {
+    // The row stays open after an add, for the next set with the same Added Weight.
+    const amount = page.getByLabel("Added weight in pounds");
+    if (!(await amount.isVisible())) await page.getByRole("button", { name: "Added weight", exact: true }).click();
+    await page
+      .getByRole("group", { name: "Added weight type" })
+      .getByRole("button", { name: set.added.sign === "extra" ? "Extra" : "Assistance" })
+      .click();
+    await amount.fill(String(set.added.amount));
+    await page.getByLabel("Description of the added weight").fill(set.added.note);
+  }
+  await addSetButton(page).click();
+  await expect(rows).toHaveCount(before + count);
+  await expect(rows.last()).toContainText(
+    set.weight === undefined ? `${set.reps} reps × ` : `${set.reps} reps × ${set.weight} lb`,
+  );
 }
 
 /** Completes the Current Workout, which must already be open on the page. */

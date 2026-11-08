@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { serverMutationOptions } from "@/lib/server-mutation";
+import { bodyWeightKeys } from "@/lib/body-weight/queries";
 import { progressionKeys } from "@/lib/progression/queries";
 import {
   addSetServerFn,
@@ -41,14 +42,19 @@ export const startWorkoutMutationOptions = () =>
     invalidates: [workoutKeys.current],
   });
 
+// The first Set of a Body-weight Movement can record the user's first Body Weight Entry, which the
+// Profile and the Current Workout form read (ADR 0003). The form shows the refusals about the
+// weights it sent beside those fields.
 export const addSetMutationOptions = () =>
   serverMutationOptions({
     mutationFn: (data: SetDraft) => addSetServerFn({ data }),
-    invalidates: [workoutKeys.current],
+    invalidates: [workoutKeys.current, bodyWeightKeys.all],
+    formErrors: ["assistance-exceeds-body-weight", "added-weight-not-allowed", "body-weight-required"],
   });
 
 // Only Sets of the Current Workout can change state, so neither the history nor the Progression
-// Charts are stale (ADR 0011).
+// Charts are stale (ADR 0011). Completing a body-weight Set again can refuse with
+// assistance-exceeds-body-weight; there is no form, so it is a toast.
 export const setCompletedMutationOptions = () =>
   serverMutationOptions({
     mutationFn: (data: SetCompletedChange) => setCompletedServerFn({ data }),
