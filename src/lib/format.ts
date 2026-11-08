@@ -4,7 +4,8 @@
 
 const locale = "en-US";
 
-const weightFormat = new Intl.NumberFormat(locale, { maximumFractionDigits: 2 });
+// Any number a screen shows: weights and counts alike, with grouping and at most two decimals.
+const amountFormat = new Intl.NumberFormat(locale, { maximumFractionDigits: 2 });
 
 /** The unit every weight is in (ADR 0002), for a field that shows it beside the number. */
 export const weightUnit = "lb";
@@ -14,7 +15,12 @@ export const weightUnitName = "pounds";
 
 /** A weight's number without the unit, for a chart axis whose unit is said elsewhere: "135.5". */
 export function formatWeightAmount(pounds: number): string {
-  return weightFormat.format(pounds);
+  return amountFormat.format(pounds);
+}
+
+/** A count with no unit, such as a Total Reps: "1,240". */
+export function formatCount(count: number): string {
+  return amountFormat.format(count);
 }
 
 /** A Weight or Load in pounds, as the screens show it: "135.5 lb". */

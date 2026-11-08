@@ -211,7 +211,8 @@ test.describe("Workouts", () => {
       const movement = `Dips ${uniqueToken()}`;
       await createMovement(page, movement);
       await openPage(page, "/workout-history");
-      await expect(page.getByText("No completed workouts yet.")).toBeVisible();
+      // Both the Progression card and the table say so.
+      await expect(page.getByText("No completed workouts yet.")).toHaveCount(2);
       await startWorkout(page);
       await addSet(page, { movement, weight: 0, reps: 12 });
 
@@ -251,9 +252,10 @@ test.describe("Workouts", () => {
       await historyRows(page).filter({ hasText: "25 lb" }).getByRole("checkbox").check();
       await page.getByRole("button", { name: "Delete Selected (2)" }).click();
 
-      await expect(page.getByText("No completed workouts yet.")).toBeVisible();
+      // Both the Progression card and the table say so.
+      await expect(page.getByText("No completed workouts yet.")).toHaveCount(2);
       await openPage(page, "/workout-history");
-      await expect(page.getByText("No completed workouts yet.")).toBeVisible();
+      await expect(page.getByText("No completed workouts yet.")).toHaveCount(2);
     });
   });
 });
