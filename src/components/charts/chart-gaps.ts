@@ -1,4 +1,4 @@
-import { dateToTimestamp } from "./time-axis";
+import { dateToTimestamp, timeDomain } from "./time-axis";
 
 // Gaps on a time chart: shaded bands where the data stops for a while, with the line dashed across
 // them. Pure, so the drawing in time-chart.tsx stays thin. The screen finds the gaps and writes their
@@ -30,6 +30,25 @@ export function clipGaps(gaps: ChartGap[], [start, end]: [number, number]): GapB
     const x2 = Math.min(dateToTimestamp(gap.to), end);
     return x2 > x1 ? [{ gap, x1, x2 }] : [];
   });
+}
+
+/**
+ * The X axis of a chart of these points: from `from` (a period's start) or the first point, to today.
+ * time-chart.tsx draws this axis, so a legend that asks whether a gap shows sees the same one.
+ */
+export function chartDomain(points: { date: string }[], today: string, from?: string): [number, number] {
+  const first = points.reduce((earliest, point) => (point.date < earliest ? point.date : earliest), points[0].date);
+  return timeDomain(from ?? first, today);
+}
+
+/** The gaps that show on a chart of these points, clipped to its X axis. */
+export function visibleGaps(
+  points: { date: string }[],
+  today: string,
+  from: string | undefined,
+  gaps: ChartGap[],
+): GapBand[] {
+  return clipGaps(gaps, chartDomain(points, today, from));
 }
 
 /** About how wide a character of the 11px band label is, and the room kept around it. */

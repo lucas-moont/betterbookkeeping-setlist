@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { clipGaps, fittingLabel, splitAtGaps, type ChartGap } from "./chart-gaps";
+import { clipGaps, fittingLabel, splitAtGaps, visibleGaps, type ChartGap } from "./chart-gaps";
 import { dateToTimestamp as t } from "./time-axis";
 
 const gap = (from: string, to: string, open = false): ChartGap => ({
@@ -31,6 +31,25 @@ describe("clipGaps", () => {
   test("ends an open gap at the window's end", () => {
     const open = gap("2026-10-01", "2026-11-07", true);
     expect(clipGaps([open], window)).toEqual([{ gap: open, x1: t("2026-10-01"), x2: t("2026-11-07") }]);
+  });
+});
+
+describe("visibleGaps", () => {
+  const points = [{ date: "2026-10-01" }, { date: "2026-10-20" }];
+  const before = gap("2026-06-01", "2026-07-01");
+  const between = gap("2026-10-01", "2026-10-20");
+  const open = gap("2026-10-20", "2026-11-07", true);
+
+  test("are the gaps inside the axis that runs from the first point to today", () => {
+    expect(visibleGaps(points, "2026-11-07", undefined, [before, between, open]).map((band) => band.gap)).toEqual([
+      between,
+      open,
+    ]);
+  });
+
+  test("start at the period's start when one is given", () => {
+    const [band] = visibleGaps(points, "2026-11-07", "2026-06-15", [before]);
+    expect(band).toEqual({ gap: before, x1: t("2026-06-15"), x2: t("2026-07-01") });
   });
 });
 

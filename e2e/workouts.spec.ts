@@ -17,17 +17,22 @@ function longDate(instant: Date, timeZone: string) {
   return new Intl.DateTimeFormat("en-US", options).format(instant);
 }
 
-/** The cell of a history row under the column with this header. */
+/** The cell of a history row under the column with this header, once the header is on screen. */
 async function historyCell(page: Page, row: Locator, column: string) {
-  const headers = await page.getByRole("columnheader").allTextContents();
-  const index = headers.findIndex((header) => header.trim() === column);
-  expect(index, `column "${column}"`).toBeGreaterThanOrEqual(0);
+  const header = page.getByRole("columnheader", { name: column, exact: true });
+  await expect(header).toBeVisible();
+  const index = await header.evaluate((cell: HTMLTableCellElement) => cell.cellIndex);
   return row.getByRole("cell").nth(index);
 }
 
 /** Rows of the history table that hold a workout (the header row has the "select all" box instead). */
 function historyRows(page: Page) {
-  return page.getByRole("row").filter({ has: page.getByRole("checkbox", { name: "Select workout", exact: true }) });
+  return page.getByRole("row").filter({ has: page.getByRole("checkbox", { name: /^Select workout from / }) });
+}
+
+// The browser's today, as the history table writes a date: "Nov 7, 2026".
+function shortDate(instant: Date) {
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(instant);
 }
 
 test.describe("Workouts", () => {
@@ -119,6 +124,10 @@ test.describe("Workouts", () => {
 
       await expect(page.getByRole("columnheader", { name: movement })).toBeVisible();
       await expect(historyRows(page)).toHaveText([/315 lb \/ 3 reps \/ 1 set$/]);
+      // Each row's box says which workout it selects.
+      await expect(
+        historyRows(page).getByRole("checkbox", { name: `Select workout from ${shortDate(new Date())}` }),
+      ).toBeVisible();
     });
 
     test("should count only the completed sets of a workout", async ({ page }) => {
@@ -211,8 +220,7 @@ test.describe("Workouts", () => {
       const movement = `Dips ${uniqueToken()}`;
       await createMovement(page, movement);
       await openPage(page, "/workout-history");
-      // Both the Progression card and the table say so.
-      await expect(page.getByText("No completed workouts yet.")).toHaveCount(2);
+      await expect(page.getByText("No completed workouts yet.")).toBeVisible();
       await startWorkout(page);
       await addSet(page, { movement, weight: 0, reps: 12 });
 
@@ -252,10 +260,9 @@ test.describe("Workouts", () => {
       await historyRows(page).filter({ hasText: "25 lb" }).getByRole("checkbox").check();
       await page.getByRole("button", { name: "Delete Selected (2)" }).click();
 
-      // Both the Progression card and the table say so.
-      await expect(page.getByText("No completed workouts yet.")).toHaveCount(2);
+      await expect(page.getByText("No completed workouts yet.")).toBeVisible();
       await openPage(page, "/workout-history");
-      await expect(page.getByText("No completed workouts yet.")).toHaveCount(2);
+      await expect(page.getByText("No completed workouts yet.")).toBeVisible();
     });
   });
 });

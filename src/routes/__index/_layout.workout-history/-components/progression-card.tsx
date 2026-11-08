@@ -1,27 +1,22 @@
-import { useState, useTransition } from "react";
+import { useDeferredValue, useState } from "react";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SegmentedControl, type SegmentedOption } from "@/components/ui/segmented-control";
-import { todayIsoDate } from "@/lib/format";
 import type { ProgressionMovement } from "@/lib/progression";
 import { progressionMovementsQueryOptions } from "@/lib/progression/queries";
 import { useTimeZone } from "@/lib/time-zone";
 import { cn } from "@/lib/utils";
 import { MovementCombobox, MovementList } from "./movement-picker";
-import { defaultMovement, type Metric, type Period } from "./progression";
+import { defaultMovement, metrics, periods, type Metric, type Period } from "./progression";
 import { ProgressionChart, chartHeight } from "./progression-chart";
 
-const metricOptions: SegmentedOption<Metric>[] = [
-  { value: "maxWeight", label: "Max Weight" },
-  { value: "totalReps", label: "Total Reps" },
-  { value: "totalVolume", label: "Total Volume" },
-];
+const metricOptions = (Object.keys(metrics) as Metric[]).map(
+  (metric): SegmentedOption<Metric> => ({ value: metric, label: metrics[metric].label }),
+);
 
-const periodOptions: SegmentedOption<Period>[] = [
-  { value: "3m", label: "3M" },
-  { value: "1y", label: "1Y" },
-  { value: "all", label: "All" },
-];
+const periodOptions = (Object.keys(periods) as Period[]).map(
+  (period): SegmentedOption<Period> => ({ value: period, label: periods[period].label }),
+);
 
 /**
  * One Movement's Metric over time, above the Completed Workouts. The list holds only Movements with a
@@ -38,9 +33,10 @@ export function ProgressionCard() {
       </CardHeader>
       <CardContent>
         {data.movements.length === 0 ? (
+          // Completed Workouts can exist with no Completed Set in them, so this speaks of Training Days.
           <div className="flex flex-col items-center justify-center text-center" style={{ height: chartHeight }}>
-            <p className="text-sm text-slate-500">No completed workouts yet.</p>
-            <p className="text-sm text-slate-500">Complete a workout and your progress shows up here.</p>
+            <p className="text-sm text-slate-500">No Training Days yet.</p>
+            <p className="text-sm text-slate-500">Complete a set in a workout and your progress shows up here.</p>
           </div>
         ) : (
           <ProgressionPanel movements={data.movements} />
@@ -51,39 +47,36 @@ export function ProgressionCard() {
 }
 
 function ProgressionPanel({ movements }: { movements: ProgressionMovement[] }) {
-  const timeZone = useTimeZone();
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [metric, setMetric] = useState<Metric>("maxWeight");
   const [period, setPeriod] = useState<Period>("all");
-  // A newly picked Movement loads its Training Days; the chart on screen stays until they arrive.
-  const [loading, startTransition] = useTransition();
 
   // A picked Movement whose workouts were all deleted falls back to the default.
   const movement = movements.find((m) => m.id === pickedId) ?? defaultMovement(movements) ?? movements[0];
-  const pick = (movementId: string) => startTransition(() => setPickedId(movementId));
+  // The pick shows at once in the list and the combobox; the chart keeps the previous Movement, dimmed,
+  // until the new one's Training Days have loaded.
+  const chartedMovement = useDeferredValue(movement);
+  const loading = chartedMovement.id !== movement.id;
 
   return (
     <div className="lg:grid lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-2">
       <MovementList
         movements={movements}
         selectedId={movement.id}
-        onPick={pick}
+        onPick={setPickedId}
         className="hidden border-r border-slate-200 pr-4 lg:block"
       />
       <div className="min-w-0 space-y-3 lg:pl-4">
-        <MovementCombobox movements={movements} selectedId={movement.id} onPick={pick} className="lg:hidden" />
+        <MovementCombobox movements={movements} selectedId={movement.id} onPick={setPickedId} className="lg:hidden" />
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <SegmentedControl label="Metric" options={metricOptions} value={metric} onChange={setMetric} dense />
           <SegmentedControl label="Period" options={periodOptions} value={period} onChange={setPeriod} />
         </div>
         <div className={cn("transition-opacity", loading && "opacity-60")}>
           <ProgressionChart
-            movement={movement}
+            movement={chartedMovement}
             metric={metric}
-            metricLabel={metricOptions.find((option) => option.value === metric)?.label ?? ""}
             period={period}
-            today={todayIsoDate(timeZone)}
-            timeZone={timeZone}
             onShowAllTime={() => setPeriod("all")}
           />
         </div>

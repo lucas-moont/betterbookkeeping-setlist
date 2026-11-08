@@ -52,7 +52,7 @@ describe("periodStart", () => {
   });
 
   test("has no start for All", () => {
-    expect(periodStart("all", "2026-11-07")).toBeNull();
+    expect(periodStart("all", "2026-11-07")).toBeUndefined();
   });
 });
 
@@ -67,7 +67,7 @@ describe("metricPoints", () => {
   });
 
   test("takes every Training Day without a start", () => {
-    expect(metricPoints([day("2026-07-01", 175)], "totalReps", null)).toEqual([{ date: "2026-07-01", value: 20 }]);
+    expect(metricPoints([day("2026-07-01", 175)], "totalReps", undefined)).toEqual([{ date: "2026-07-01", value: 20 }]);
   });
 });
 

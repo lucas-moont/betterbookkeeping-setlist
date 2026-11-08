@@ -66,7 +66,7 @@ for (const timeZone of [ahead, behind]) {
 
       const response = await openPage(page, "/workout-history");
 
-      await expect(page.getByRole("cell", { name: today(timeZone, "short") })).toBeVisible();
+      await expect(page.getByRole("cell", { name: today(timeZone, "short"), exact: true })).toBeVisible();
       expect(await response?.text()).toContain(today(timeZone, "short"));
       expect(hydrationErrors).toEqual([]);
     });

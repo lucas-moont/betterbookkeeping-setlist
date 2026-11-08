@@ -15,7 +15,7 @@ function movementList(page: Page) {
 }
 
 function movementButton(page: Page, name: string) {
-  return movementList(page).getByRole("button", { name: new RegExp(`^${name} \\d+$`) });
+  return movementList(page).getByRole("button", { name: new RegExp(`^${name} \\d+ Training Days$`) });
 }
 
 /** The chart, named after the movement and metric it shows. */
@@ -54,7 +54,14 @@ test.describe("Progression", () => {
 
     await openPage(page, "/workout-history");
 
-    await expect(movementList(page).getByRole("button")).toHaveText([new RegExp(`^${done}\\s*1$`)]);
+    await expect(movementList(page).getByRole("button")).toHaveText([new RegExp(`^${done}\\s*1 Training Days$`)]);
+  });
+
+  test("should say there are no Training Days yet before any set is completed", async ({ page }) => {
+    await openPage(page, "/workout-history");
+
+    await expect(page.getByText("No Training Days yet.")).toBeVisible();
+    await expect(page.getByText("Complete a set in a workout and your progress shows up here.")).toBeVisible();
   });
 
   test("should filter the list as the user types, and chart a movement only once picked", async ({ page }) => {
@@ -113,7 +120,7 @@ test.describe("Progression", () => {
     expect(serverCalls).toEqual([]);
   });
 
-  test("should pick a movement from the combobox on a phone", async ({ page }) => {
+  test("should pick a movement from the combobox on a phone, by touch or by keyboard", async ({ page }) => {
     const token = uniqueToken();
     const squat = `Back Squat ${token}`;
     const bench = `Bench Press ${token}`;
@@ -124,26 +131,41 @@ test.describe("Progression", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openPage(page, "/workout-history");
     const combobox = page.getByRole("combobox", { name: "Movement" });
+    const options = page.getByRole("listbox", { name: "Movements" }).getByRole("option");
     await expect(combobox).toHaveValue(squat);
+    // Closed, it points at no list.
+    await expect(combobox).not.toHaveAttribute("aria-controls");
 
-    await combobox.focus();
+    await combobox.click();
 
     await expect(combobox).toHaveAttribute("aria-expanded", "true");
-    await expect(page.getByRole("listbox", { name: "Movements" }).getByRole("option")).toHaveCount(2);
+    await expect(options).toHaveCount(2);
+    await expect(options.first()).toHaveAccessibleName(`${squat} 1 Training Days`);
 
-    await combobox.fill("bench");
-    await expect(page.getByRole("option")).toHaveText([new RegExp(`^${bench}`)]);
+    // The arrows move through the options, and Enter picks the one they rest on.
+    await combobox.press("ArrowDown");
+    await expect(combobox).toHaveAttribute("aria-activedescendant", (await options.nth(0).getAttribute("id")) ?? "");
+    await combobox.press("ArrowDown");
+    await expect(combobox).toHaveAttribute("aria-activedescendant", (await options.nth(1).getAttribute("id")) ?? "");
     await combobox.press("Enter");
 
     await expect(combobox).toHaveValue(bench);
     await expect(combobox).toHaveAttribute("aria-expanded", "false");
+    await expect(combobox).toBeFocused();
     await expect(chart(page, bench)).toBeVisible();
 
-    await combobox.focus();
+    // Typing opens the list too; with nothing active, Enter picks the first match.
+    await combobox.fill("squat");
+    await expect(combobox).toHaveAttribute("aria-expanded", "true");
+    await combobox.press("Enter");
+    await expect(combobox).toHaveValue(squat);
+
     await combobox.fill("zzz");
-    await expect(page.getByText('No movements match "zzz".')).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: 'No movements match "zzz".' })).toBeVisible();
     await combobox.press("Escape");
-    await expect(combobox).toHaveValue(bench);
+    await expect(combobox).toHaveValue(squat);
+    await expect(combobox).toHaveAttribute("aria-expanded", "false");
+    await expect(combobox).toBeFocused();
   });
 
   test.describe("months later", () => {
@@ -152,6 +174,7 @@ test.describe("Progression", () => {
       await createMovement(page, movement);
       await logCompletedWorkout(page, { movement, weight: 315, reps: 3 });
       await monthsLater(page);
+      await page.setViewportSize({ width: 390, height: 844 });
       await openPage(page, "/workout-history");
       await expect(chart(page, movement)).toBeVisible();
 
@@ -160,7 +183,10 @@ test.describe("Progression", () => {
       await expect(page.getByText(`No Training Days for ${movement} in the last 3 months.`)).toBeVisible();
       await expect(page.getByText(/^Last one: \w{3} \d{1,2}, \d{4}\.$/)).toBeVisible();
 
-      await page.getByRole("button", { name: "Show all time" }).click();
+      const showAllTime = page.getByRole("button", { name: "Show all time" });
+      // A touch target like every other button on a phone.
+      expect((await showAllTime.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+      await showAllTime.click();
 
       await expect(chart(page, movement)).toBeVisible();
       await expect(page.getByRole("group", { name: "Period" }).getByRole("button", { name: "All" })).toHaveAttribute(
@@ -179,6 +205,12 @@ test.describe("Progression", () => {
 
       await expect(chart(page, movement).getByText(`No ${movement} since `)).toBeVisible();
       await expect(page.getByText(`More than 2 weeks without ${movement}`)).toBeVisible();
+      // A screen reader hears the open gap with the chart's name.
+      await expect(chart(page, movement)).toHaveAccessibleName(
+        new RegExp(`, no ${movement} since \\w{3} \\d{1,2}, \\d{4}, \\d+ months so far$`),
+      );
+      // The chart is one image: recharts' own keyboard layer would add an unnamed stop inside it.
+      await expect(chart(page, movement).locator('[role="application"]')).toHaveCount(0);
 
       // Far from the only point, the band's tooltip says how long it has been.
       const box = await chart(page, movement).boundingBox();
@@ -187,6 +219,24 @@ test.describe("Progression", () => {
 
       await expect(page.getByText(/^\d+ months so far$/)).toBeVisible();
     });
+  });
+});
+
+test.describe("Progression on a touch screen", () => {
+  test.use({ hasTouch: true });
+
+  test("should show a gap's tooltip when its band is tapped", async ({ page }) => {
+    const movement = `Chin-up ${uniqueToken()}`;
+    await createMovement(page, movement);
+    await logCompletedWorkout(page, { movement, weight: 0, reps: 6 });
+    await monthsLater(page);
+    await openPage(page, "/workout-history");
+    const box = await chart(page, movement).boundingBox();
+    if (!box) throw new Error("the chart has no box");
+
+    await page.touchscreen.tap(box.x + box.width * 0.6, box.y + box.height / 2);
+
+    await expect(page.getByText(/^\d+ months so far$/)).toBeVisible();
   });
 });
 

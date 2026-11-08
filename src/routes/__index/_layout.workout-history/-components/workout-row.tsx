@@ -23,18 +23,20 @@ export function WorkoutRow({
   selected: boolean;
   onToggle: () => void;
 }) {
+  const date = formatDate(workout.completedAt, timeZone);
+
   return (
     <tr className={cn("border-b border-slate-100", selected ? "bg-primary/10" : "hover:bg-slate-50")}>
       <td className="py-3 px-4">
         <input
-          aria-label="Select workout"
+          aria-label={`Select workout from ${date}`}
           type="checkbox"
           checked={selected}
           onChange={onToggle}
           className="rounded border-gray-300"
         />
       </td>
-      <td className="whitespace-nowrap py-3 px-4 text-slate-500">{formatDate(workout.completedAt, timeZone)}</td>
+      <td className="whitespace-nowrap py-3 px-4 text-slate-500">{date}</td>
       <td className="whitespace-nowrap py-3 px-4 text-slate-700">
         {workout.muscleGroups.length > 0 ? (
           workout.muscleGroups.map((group) => muscleGroupLabels[group]).join(", ")

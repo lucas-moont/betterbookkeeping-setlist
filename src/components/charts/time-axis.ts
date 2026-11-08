@@ -1,7 +1,7 @@
 import { formatWeightAmount } from "@/lib/format";
 import { isoDateToUtc, utcToIsoDate } from "@/lib/iso-date";
 
-// The axes of every time chart in the app (the Body Weight Chart now, the Progression Chart next), so
+// The axes of every time chart in the app (the Body Weight Chart and the Progression Chart), so
 // both read time the same way. Pure: dates come in as "YYYY-MM-DD" and become UTC-midnight timestamps,
 // which keeps every day exactly one day wide and no time zone can move a point (ADR 0004).
 

@@ -1,18 +1,16 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ClientOnly } from "@tanstack/react-router";
 import { CartesianGrid, Line, LineChart, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { formatCalendarDate, formatCalendarMonth } from "@/lib/format";
-import { clipGaps, fittingLabel, splitAtGaps, type ChartGap } from "./chart-gaps";
-import { monthTicks, tickShowsYear, timeDomain, timestampToDate, valueDomain } from "./time-axis";
+import { chartDomain, fittingLabel, splitAtGaps, visibleGaps, type ChartGap } from "./chart-gaps";
+import { monthTicks, tickShowsYear, timestampToDate, valueDomain } from "./time-axis";
 
-// The app's one line chart over time (the Body Weight Chart now, the Progression Chart next), so both
-// look and read the same. The X axis is numeric time, not categories: a month without data shows as a
+// The app's one line chart over time (the Body Weight Chart and the Progression Chart), so both look
+// and read the same. The X axis is numeric time, not categories: a month without data shows as a
 // month of empty space, which keeps the trend honest (PRODUCT.md, "Show the trend, honestly").
 
 /** One point: a calendar date and its value, and an optional last line for its tooltip. */
 export type TimePoint = { date: string; value: number; note?: string };
-
-export type { ChartGap };
 
 type TimeChartProps = {
   /** At least one point, in any order. */
@@ -47,6 +45,9 @@ const colors = {
 /** How close to a point, in pixels, the pointer must be for the point's tooltip to win over a gap's. */
 const pointPriorityPx = 12;
 
+/** How far from the chart's sides a gap's tooltip is centred, so it never runs off the edge. */
+const gapTooltipInset = 90;
+
 const tickStyle = { fontSize: 12, fill: colors.label };
 
 /**
@@ -72,32 +73,50 @@ function TimeChartBody({
   formatAxisValue,
   height,
 }: Omit<TimeChartProps, "ariaLabel"> & { height: number }) {
-  // Which gap the pointer is over, where the pointer is, and where the nearest point is, in pixels.
+  // Which gap the pointer is over (or a finger tapped), where the pointer is in the chart's width, and
+  // where the nearest point is, in pixels.
   const [hoveredGap, setHoveredGap] = useState<ChartGap | null>(null);
-  const [pointerX, setPointerX] = useState<number | null>(null);
+  const [pointer, setPointer] = useState<{ x: number; width: number } | null>(null);
   const [pointX, setPointX] = useState<number | null>(null);
 
-  const firstDate = points.reduce((first, point) => (point.date < first ? point.date : first), points[0].date);
-  const xDomain = timeDomain(from ?? firstDate, today);
+  const xDomain = chartDomain(points, today, from);
   const x = monthTicks(xDomain);
   const y = valueDomain(points.map((point) => point.value));
-  const bands = clipGaps(gaps, xDomain);
+  const bands = visibleGaps(points, today, from, gaps);
   const { rows, bridges } = splitAtGaps(points, bands.map((band) => band.gap));
   // A point's tooltip wins near the point; elsewhere in a band, the gap's.
   const gapActive =
-    hoveredGap !== null && (pointX === null || pointerX === null || Math.abs(pointerX - pointX) > pointPriorityPx);
+    hoveredGap !== null && (pointX === null || pointer === null || Math.abs(pointer.x - pointX) > pointPriorityPx);
+
+  const trackPointer = (event: React.PointerEvent<HTMLDivElement>) => {
+    const box = event.currentTarget.getBoundingClientRect();
+    setPointer({ x: event.clientX - box.left, width: box.width });
+  };
 
   return (
     <div
-      className="h-full w-full"
-      onPointerMove={(event) => setPointerX(event.clientX - event.currentTarget.getBoundingClientRect().left)}
-      onPointerLeave={() => {
-        setPointerX(null);
+      className="relative h-full w-full"
+      onPointerMove={trackPointer}
+      onPointerDown={(event) => {
+        trackPointer(event);
+        // A tap starts over: the band under the finger, if any, sets its gap again on click.
+        if (event.pointerType !== "mouse") {
+          setHoveredGap(null);
+          setPointX(null);
+        }
+      }}
+      onPointerLeave={(event) => {
+        // A finger "leaves" as soon as it lifts; its gap stays until the next tap.
+        if (event.pointerType !== "mouse") return;
+        setPointer(null);
         setHoveredGap(null);
       }}>
       <ResponsiveContainer width="100%" height={height}>
         <LineChart
           data={rows}
+          // The chart is one role="img" with its own label; recharts' keyboard layer would add an
+          // unnamed role="application" stop inside it.
+          accessibilityLayer={false}
           margin={{ top: 12, right: 16, bottom: 4, left: 0 }}
           onMouseMove={(state) => {
             const row = rows[Number(state.activeTooltipIndex)];
@@ -157,22 +176,15 @@ function TimeChartBody({
             cursor={gapActive ? false : { stroke: colors.cursor, strokeDasharray: "3 3" }}
             isAnimationActive={false}
             content={({ active, payload }) => {
-              if (gapActive && hoveredGap) {
-                return (
-                  <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm tabular-nums">
-                    <p className="font-medium text-slate-900">{hoveredGap.title}</p>
-                    <p className="text-slate-500">{hoveredGap.detail}</p>
-                  </div>
-                );
-              }
+              // The gap's tooltip is drawn below, outside recharts, so a tap shows it too.
+              if (gapActive) return null;
               const point = active ? (payload?.[0]?.payload as Partial<TimePoint> | undefined) : undefined;
               if (!point || point.value == null || !point.date) return null;
               return (
-                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm tabular-nums">
-                  <p className="font-medium text-slate-900">{formatValue(point.value)}</p>
-                  <p className="text-slate-500">{formatCalendarDate(point.date, "medium")}</p>
-                  {point.note && <p className="text-slate-500">{point.note}</p>}
-                </div>
+                <TooltipBox title={formatValue(point.value)}>
+                  <p>{formatCalendarDate(point.date, "medium")}</p>
+                  {point.note && <p>{point.note}</p>}
+                </TooltipBox>
               );
             }}
           />
@@ -207,6 +219,25 @@ function TimeChartBody({
           />
         </LineChart>
       </ResponsiveContainer>
+      {gapActive && hoveredGap && pointer && (
+        <div
+          className="pointer-events-none absolute top-9 z-10 -translate-x-1/2 whitespace-nowrap"
+          style={{ left: Math.min(Math.max(pointer.x, gapTooltipInset), pointer.width - gapTooltipInset) }}>
+          <TooltipBox title={hoveredGap.title}>
+            <p>{hoveredGap.detail}</p>
+          </TooltipBox>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A tooltip's box: a bold first line and quieter lines under it, for a point and for a gap alike. */
+function TooltipBox({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm tabular-nums">
+      <p className="font-medium text-slate-900">{title}</p>
+      <div className="text-slate-500">{children}</div>
     </div>
   );
 }
