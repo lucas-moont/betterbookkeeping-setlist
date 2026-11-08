@@ -40,6 +40,8 @@ Logging works, but users can't see whether they're getting stronger. They also c
 - **Security**: beyond password hashing, what would you improve? Consider rate limiting, CSRF protection, and session management.
 - **UI polish**: the UI is very basic. Show us how you'd make it look clean and professional.
 
+What was implemented and what was only designed for each stretch goal: [`docs/stretch-goals.md`](docs/stretch-goals.md).
+
 ### What happens next
 
 There will be a code review of your work, so be ready to explain how you implemented each feature and why you made the choices you did.
