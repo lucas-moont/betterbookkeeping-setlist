@@ -34,8 +34,14 @@ function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
-/** Starts a new Session for the user and puts its token in the cookie. */
+/**
+ * Starts a new Session for the user and puts its token in the cookie. A Session the browser already
+ * had is ended first: signing in again, as anyone, must not leave it valid for a copy of the cookie.
+ */
 async function startSession(db: DbClient, cookies: SessionCookies, userId: string) {
+  const previous = cookies.get();
+  if (previous) await db.session.deleteMany({ where: { tokenHash: hashToken(previous) } });
+
   const token = randomBytes(32).toString("base64url");
   await db.session.create({
     data: { tokenHash: hashToken(token), userId, expiresAt: new Date(Date.now() + sessionLifetimeMs) },
@@ -69,10 +75,16 @@ export const register = createServerOnlyFn(
   },
 );
 
+// Verified when no account matches, so an unknown email takes as long as a wrong password. The
+// password is random and thrown away, so nothing ever verifies against it. Hashing costs ~50 ms,
+// so it happens once per process, on the first sign-in that needs it.
+let dummyPasswordHash: Promise<string> | undefined;
+
 /**
  * Signs in with an email, in any case, and a password, starting a new Session: signing in on
  * another device keeps the first one. An unknown email and a wrong password both return
- * invalid-credentials, so sign-in never tells which emails have an account.
+ * invalid-credentials after the same argon2 work, so neither the answer nor its timing says which
+ * one was wrong. register's email-taken does tell that an account exists: a sign-up form has to.
  */
 export const signIn = createServerOnlyFn(
   async (
@@ -84,7 +96,11 @@ export const signIn = createServerOnlyFn(
       where: { email: normalizeEmail(email) },
       select: { ...sessionUserSelect, password: true },
     });
-    if (!row || !(await verifyPassword(row.password, password))) return { ok: false, reason: "invalid-credentials" };
+    if (!row) {
+      await verifyPassword(await (dummyPasswordHash ??= hashPassword(randomBytes(32).toString("base64url"))), password);
+      return { ok: false, reason: "invalid-credentials" };
+    }
+    if (!(await verifyPassword(row.password, password))) return { ok: false, reason: "invalid-credentials" };
 
     const { password: _password, ...user } = row;
     // There is no scheduled cleanup (ADR 0009): a Session nobody reads again is deleted here.
@@ -130,7 +146,10 @@ export const currentUser = createServerOnlyFn(
       return null;
     }
     if (left < renewWhenLeftMs) {
-      await db.session.updateMany({ where: { id: session.id }, data: { expiresAt: new Date(now + sessionLifetimeMs) } });
+      await db.session.updateMany({
+        where: { id: session.id },
+        data: { expiresAt: new Date(now + sessionLifetimeMs) },
+      });
       cookies.set(token, sessionLifetimeMs / 1000);
     }
     return session.user;

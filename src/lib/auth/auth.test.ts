@@ -37,6 +37,18 @@ describe("register", () => {
     expect(await auth.currentUser(db, cookies)).toStrictEqual({ id: user.id, email: account.email, name: "Lucas" });
   });
 
+  test("ends the session the browser already had", async () => {
+    const db = await getServerSidePrismaClient();
+    const cookies = memoryCookies();
+    expectOk(await auth.register(db, cookies, newAccount()));
+    const copy = memoryCookies(cookies.get());
+
+    const { user } = expectOk(await auth.register(db, cookies, newAccount()));
+
+    expect(await auth.currentUser(db, copy)).toBeNull();
+    expect((await auth.currentUser(db, cookies))?.id).toBe(user.id);
+  });
+
   test("an email that already has an account returns email-taken and signs no one in", async () => {
     const db = await getServerSidePrismaClient();
     const account = newAccount();
@@ -56,7 +68,11 @@ describe("email addresses", () => {
     const db = await getServerSidePrismaClient();
     const local = `lucas-${crypto.randomUUID()}`;
     const { user } = expectOk(
-      await auth.register(db, memoryCookies(), { email: `${local.toUpperCase()}@Example.com`, name: "Lucas", password }),
+      await auth.register(db, memoryCookies(), {
+        email: `${local.toUpperCase()}@Example.com`,
+        name: "Lucas",
+        password,
+      }),
     );
 
     expect(user.email).toBe(`${local}@example.com`);
@@ -116,6 +132,22 @@ describe("signIn", () => {
     expect((await auth.currentUser(db, phone))?.id).toBe(user.id);
   });
 
+  // Signing in again from the same browser (another account, or the same one) must not leave the
+  // old Session valid for whoever copied its cookie.
+  test("ends the session the browser already had", async () => {
+    const db = await getServerSidePrismaClient();
+    const account = newAccount();
+    const { user } = expectOk(await auth.register(db, memoryCookies(), account));
+    const cookies = memoryCookies();
+    expectOk(await auth.signIn(db, cookies, { email: account.email, password }));
+    const copy = memoryCookies(cookies.get());
+
+    expectOk(await auth.signIn(db, cookies, { email: account.email, password }));
+
+    expect(await auth.currentUser(db, copy)).toBeNull();
+    expect((await auth.currentUser(db, cookies))?.id).toBe(user.id);
+  });
+
   // Reading the expired session would delete it too, so the check goes back in time to a day it
   // was still valid: only a deleted row comes back null there.
   test("deletes the user's expired sessions", async () => {
@@ -157,7 +189,9 @@ describe("currentUser", () => {
 
     const { user } = expectOk(await auth.register(db, cookies, newAccount()));
 
-    expect(cookies.sets).toEqual([{ token: expect.stringMatching(/^[\w-]{43}$/), maxAgeSeconds: fifteenDaysInSeconds }]);
+    expect(cookies.sets).toEqual([
+      { token: expect.stringMatching(/^[\w-]{43}$/), maxAgeSeconds: fifteenDaysInSeconds },
+    ]);
     expect(cookies.sets[0]?.token).not.toContain(user.id);
   });
 

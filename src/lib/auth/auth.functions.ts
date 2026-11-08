@@ -14,19 +14,28 @@ import { requestSessionCookies } from "./session.server";
 // address. Case is left as typed: the module normalizes it (email.ts).
 const emailSchema = z.string().trim().pipe(z.email());
 
+// argon2 hashes whatever it's given, so an unbounded password is unbounded server work per request.
+const passwordMaxLength = 256;
+
 /** The signed-in user, or null. The root route reads it on every navigation. */
 export const getUserServerFn = createServerFn().handler(async () => {
   return auth.currentUser(await getServerSidePrismaClient(), requestSessionCookies());
 });
 
 export const signInServerFn = createServerFn({ method: "POST" })
-  .inputValidator(z.object({ email: emailSchema, password: z.string() }))
+  .inputValidator(z.object({ email: emailSchema, password: z.string().max(passwordMaxLength) }))
   .handler(async ({ data }: { data: { email: string; password: string } }) => {
     return toServerResult(await auth.signIn(await getServerSidePrismaClient(), requestSessionCookies(), data));
   });
 
 export const createAccountServerFn = createServerFn({ method: "POST" })
-  .inputValidator(z.object({ email: emailSchema, name: z.string().min(1), password: z.string().min(6) }))
+  .inputValidator(
+    z.object({
+      email: emailSchema,
+      name: z.string().min(1).max(100),
+      password: z.string().min(6).max(passwordMaxLength),
+    }),
+  )
   .handler(async ({ data }: { data: { email: string; name: string; password: string } }) => {
     return toServerResult(await auth.register(await getServerSidePrismaClient(), requestSessionCookies(), data));
   });
