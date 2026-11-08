@@ -14,6 +14,7 @@ export function SegmentedControl<T extends string | number>({
   options,
   value,
   onChange,
+  dense = false,
   className,
 }: {
   /** The group's accessible name, such as "Metric". */
@@ -21,6 +22,11 @@ export function SegmentedControl<T extends string | number>({
   options: readonly SegmentedOption<T>[];
   value: T;
   onChange: (value: T) => void;
+  /**
+   * Longer labels on a phone: equal-width buttons with 14px text, so "Max Weight / Total Reps /
+   * Total Volume" fit the card. The buttons keep their 44px height.
+   */
+  dense?: boolean;
   className?: string;
 }) {
   return (
@@ -37,6 +43,7 @@ export function SegmentedControl<T extends string | number>({
             className={cn(
               "relative inline-flex h-11 flex-1 items-center justify-center gap-1 whitespace-nowrap border px-2.5 text-base font-medium transition-colors sm:h-10 sm:flex-none sm:text-sm",
               "focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
+              dense && "min-w-0 text-sm max-sm:basis-0 max-sm:px-1.5",
               index > 0 && "-ml-px",
               index === 0 && "rounded-l-lg",
               index === options.length - 1 && "rounded-r-lg",

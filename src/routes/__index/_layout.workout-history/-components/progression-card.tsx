@@ -73,7 +73,7 @@ function ProgressionPanel({ movements }: { movements: ProgressionMovement[] }) {
       <div className="min-w-0 space-y-3 lg:pl-4">
         <MovementCombobox movements={movements} selectedId={movement.id} onPick={pick} className="lg:hidden" />
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <SegmentedControl label="Metric" options={metricOptions} value={metric} onChange={setMetric} />
+          <SegmentedControl label="Metric" options={metricOptions} value={metric} onChange={setMetric} dense />
           <SegmentedControl label="Period" options={periodOptions} value={period} onChange={setPeriod} />
         </div>
         <div className={cn("transition-opacity", loading && "opacity-60")}>
