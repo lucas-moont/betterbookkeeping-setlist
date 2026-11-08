@@ -125,7 +125,9 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
       },
       {
         name: "viewport",
-        content: "width=device-width, initial-scale=1",
+        // viewport-fit=cover lets the page reach under the iPhone's home indicator, so the bottom bar
+        // can pad itself by env(safe-area-inset-bottom); without it that inset is always 0.
+        content: "width=device-width, initial-scale=1, viewport-fit=cover",
       },
       {
         title: "Setlist",
