@@ -543,7 +543,7 @@ Each workout server function used to do everything itself: validate the input, r
 
 ### A layout for the phone in your hand at the gym
 
-**The problem.** Sets are logged at the gym, with a phone in one hand. The 256 px sidebar showed at every width, so a 375 px phone had about 90 px left for the page: words wrapped one per line and buttons were cut off. This answers the "UI polish" stretch goal, for the screen people actually use.
+**The problem.** Sets are logged at the gym, with a phone in one hand. The 256 px sidebar showed at every width, so a 375 px phone had about 70 px left for the page's content: words wrapped one per line and buttons were cut off. This answers the "UI polish" stretch goal, for the screen people actually use.
 
 **How.** An audit at 375 px came first (each item of the approved prototype checked on the running app). Most of the phone work had already landed with the screens themselves: the stacked set form, 44 px touch targets with 16 px text (so iOS doesn't zoom into a field), the short "Complete" and "Delete (N)" labels, the movement filters and the history table scrolling sideways inside their cards. What was missing:
 

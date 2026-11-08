@@ -115,7 +115,7 @@ The README lists four stretch goals. This file answers each one. Each section sa
 
 **Left, and why.**
 
-- **Touch sizes inside `Input`, `Select` and `Button`.** Today each control on a phone screen carries its own touch-size classes; `touchField` in `src/components/ui/touch.ts` is shared only by the Profile's body weight form. Moving the size into the primitives touches every screen, so it is a change of its own.
+- **Touch sizes inside `Input`, `Select` and `Button`.** Today `touchField` in `src/components/ui/touch.ts` is shared by the Current Workout's set fields (through `field-class.ts`) and by the Profile's body weight form; the other controls write the same sizes by hand. Moving the size into the primitives touches every screen, so it is a change of its own.
 - **Between 640 and 767 px**, the bottom bar shows while fields are already back to 40 px, as the `DESIGN.md` breakpoints say. A small tablet held upright may want 44 px up to 768 px, and that is a `DESIGN.md` change first.
 - **A run on a real Safari** (WebKit, or an iPhone), for the safe area and the iOS zoom rule. The phone project runs on Chromium.
 - **A "Log out?" confirmation.** Log out sits next to Profile on the bottom bar, so a stray tap signs the user out. That risk was accepted when the prototype was approved, and the confirmation is the fix if it bites.
