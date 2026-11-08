@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { createServerOnlyFn } from "@tanstack/react-start";
 import type { DbClient } from "@/lib/db.server";
 import type { Result } from "@/lib/error-codes";
+import { normalizeEmail } from "./email";
 import { hashPassword, verifyPassword } from "./password";
 
 // The auth module (ADR 0010): accounts and the Sessions behind the session cookie (ADR 0009). It
@@ -43,8 +44,9 @@ async function startSession(db: DbClient, cookies: SessionCookies, userId: strin
 }
 
 /**
- * Creates an account and signs it in. An email that already has an account returns email-taken.
- * The input must already be valid (the adapter's zod schema).
+ * Creates an account and signs it in. An email that already has an account, ignoring case and the
+ * whitespace around it, returns email-taken. The input must already be valid (the adapter's zod
+ * schema).
  */
 export const register = createServerOnlyFn(
   async (
@@ -56,7 +58,7 @@ export const register = createServerOnlyFn(
     // in, and nothing throws. A caught P2002 would abort a transaction the caller passed in as db
     // (ADR 0006).
     const [user] = await db.user.createManyAndReturn({
-      data: [{ email, name, password: await hashPassword(password) }],
+      data: [{ email: normalizeEmail(email), name, password: await hashPassword(password) }],
       skipDuplicates: true,
       select: sessionUserSelect,
     });
@@ -68,9 +70,9 @@ export const register = createServerOnlyFn(
 );
 
 /**
- * Signs in with an email and password, starting a new Session: signing in on another device keeps
- * the first one. An unknown email and a wrong password both return invalid-credentials, so sign-in
- * never tells which emails have an account.
+ * Signs in with an email, in any case, and a password, starting a new Session: signing in on
+ * another device keeps the first one. An unknown email and a wrong password both return
+ * invalid-credentials, so sign-in never tells which emails have an account.
  */
 export const signIn = createServerOnlyFn(
   async (
@@ -78,7 +80,10 @@ export const signIn = createServerOnlyFn(
     cookies: SessionCookies,
     { email, password }: { email: string; password: string },
   ): Promise<Result<{ user: SessionUser }, "invalid-credentials">> => {
-    const row = await db.user.findUnique({ where: { email }, select: { ...sessionUserSelect, password: true } });
+    const row = await db.user.findUnique({
+      where: { email: normalizeEmail(email) },
+      select: { ...sessionUserSelect, password: true },
+    });
     if (!row || !(await verifyPassword(row.password, password))) return { ok: false, reason: "invalid-credentials" };
 
     const { password: _password, ...user } = row;

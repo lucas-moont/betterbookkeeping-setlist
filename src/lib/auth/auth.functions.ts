@@ -10,19 +10,23 @@ import { requestSessionCookies } from "./session.server";
 // request's session cookie, and toServerResult for the error codes. What they return reaches the
 // browser, so it only ever holds a SessionUser, never the password.
 
+// Trimmed before the format check, which would refuse the whitespace a paste leaves around an
+// address. Case is left as typed: the module normalizes it (email.ts).
+const emailSchema = z.string().trim().pipe(z.email());
+
 /** The signed-in user, or null. The root route reads it on every navigation. */
 export const getUserServerFn = createServerFn().handler(async () => {
   return auth.currentUser(await getServerSidePrismaClient(), requestSessionCookies());
 });
 
 export const signInServerFn = createServerFn({ method: "POST" })
-  .inputValidator(z.object({ email: z.email(), password: z.string() }))
+  .inputValidator(z.object({ email: emailSchema, password: z.string() }))
   .handler(async ({ data }: { data: { email: string; password: string } }) => {
     return toServerResult(await auth.signIn(await getServerSidePrismaClient(), requestSessionCookies(), data));
   });
 
 export const createAccountServerFn = createServerFn({ method: "POST" })
-  .inputValidator(z.object({ email: z.email(), name: z.string().min(1), password: z.string().min(6) }))
+  .inputValidator(z.object({ email: emailSchema, name: z.string().min(1), password: z.string().min(6) }))
   .handler(async ({ data }: { data: { email: string; name: string; password: string } }) => {
     return toServerResult(await auth.register(await getServerSidePrismaClient(), requestSessionCookies(), data));
   });

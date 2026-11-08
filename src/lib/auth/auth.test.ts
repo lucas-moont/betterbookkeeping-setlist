@@ -51,6 +51,24 @@ describe("register", () => {
   });
 });
 
+describe("email addresses", () => {
+  test("ignore case and surrounding whitespace: ' Lucas@...' and 'lucas@...' are one account", async () => {
+    const db = await getServerSidePrismaClient();
+    const local = `lucas-${crypto.randomUUID()}`;
+    const { user } = expectOk(
+      await auth.register(db, memoryCookies(), { email: `${local.toUpperCase()}@Example.com`, name: "Lucas", password }),
+    );
+
+    expect(user.email).toBe(`${local}@example.com`);
+    expect(
+      await auth.register(db, memoryCookies(), { email: ` ${local}@example.com `, name: "Lucas", password }),
+    ).toEqual({ ok: false, reason: "email-taken" });
+    for (const email of [`${local}@example.com`, ` ${local.toUpperCase()}@EXAMPLE.COM\t`]) {
+      expect(expectOk(await auth.signIn(db, memoryCookies(), { email, password })).user.id).toBe(user.id);
+    }
+  });
+});
+
 describe("signIn", () => {
   test("the right password sets the session cookie for that user", async () => {
     const db = await getServerSidePrismaClient();
