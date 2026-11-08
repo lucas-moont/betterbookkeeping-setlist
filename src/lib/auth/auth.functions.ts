@@ -1,93 +1,43 @@
 import { redirect } from "@tanstack/react-router";
 import { createMiddleware, createServerFn } from "@tanstack/react-start";
-import { getServerSidePrismaClient } from "@/lib/db.server";
-import { clearSessionCookie, readSessionUserId, setSessionCookie } from "./session.server";
-import { hashPassword, verifyPassword } from "./password";
 import { z } from "zod";
+import { getServerSidePrismaClient } from "@/lib/db.server";
+import { toServerResult } from "@/lib/error-codes";
+import * as auth from "./index";
+import { requestSessionCookies } from "./session.server";
 
-/**
- * Gets the current user from session cookie
- * @returns User object or null if not logged in
- */
+// Thin adapters over the auth module (ADR 0010): input validation, the module call with the
+// request's session cookie, and toServerResult for the error codes. What they return reaches the
+// browser, so it only ever holds a SessionUser, never the password.
+
+/** The signed-in user, or null. The root route reads it on every navigation. */
 export const getUserServerFn = createServerFn().handler(async () => {
-  const userId = readSessionUserId();
-  if (!userId) {
-    return null;
-  }
-
-  const prisma = await getServerSidePrismaClient();
-  // This result reaches the browser on every client-side navigation: never select the password.
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { id: true, email: true, name: true },
-  });
-
-  return user;
+  return auth.currentUser(await getServerSidePrismaClient(), requestSessionCookies());
 });
 
-/**
- * Signs in a user with email and password
- */
 export const signInServerFn = createServerFn({ method: "POST" })
-  .inputValidator(z.object({ email: z.string().email(), password: z.string() }))
+  .inputValidator(z.object({ email: z.email(), password: z.string() }))
   .handler(async ({ data }: { data: { email: string; password: string } }) => {
-    const { email, password } = data;
-
-    const prisma = await getServerSidePrismaClient();
-    const user = await prisma.user.findUnique({
-      where: { email },
-    });
-
-    if (!user || !(await verifyPassword(user.password, password))) {
-      return { success: false as const, error: "Invalid email or password" };
-    }
-
-    setSessionCookie(user.id);
-
-    return { success: true as const };
+    return toServerResult(await auth.signIn(await getServerSidePrismaClient(), requestSessionCookies(), data));
   });
 
-/**
- * Creates a new user account
- */
 export const createAccountServerFn = createServerFn({ method: "POST" })
   .inputValidator(z.object({ email: z.email(), name: z.string().min(1), password: z.string().min(6) }))
   .handler(async ({ data }: { data: { email: string; name: string; password: string } }) => {
-    const { email, name, password } = data;
-
-    const prisma = await getServerSidePrismaClient();
-
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
-    });
-
-    if (existingUser) {
-      return { success: false as const, error: "An account with this email already exists" };
-    }
-
-    const user = await prisma.user.create({
-      data: { email, name, password: await hashPassword(password) },
-    });
-
-    setSessionCookie(user.id);
-
-    return { success: true as const };
+    return toServerResult(await auth.register(await getServerSidePrismaClient(), requestSessionCookies(), data));
   });
 
-/**
- * Logs out the current user
- */
 export const logoutServerFn = createServerFn({ method: "POST" }).handler(async () => {
-  clearSessionCookie();
-  return { success: true };
+  return toServerResult(await auth.signOut(await getServerSidePrismaClient(), requestSessionCookies()));
 });
 
 /**
- * Authentication middleware that ensures user is logged in
- * @throws Redirects to sign-in page if not authenticated
+ * Puts the signed-in user on context.user, and redirects to the sign-in page when there is none.
+ * It calls the module directly: going through getUserServerFn would make a server function call
+ * another one.
  */
 export const authMiddleware = createMiddleware({ type: "function" }).server(async ({ next }) => {
-  const user = await getUserServerFn();
+  const user = await auth.currentUser(await getServerSidePrismaClient(), requestSessionCookies());
   if (!user) {
     throw redirect({ to: "/sign-in" });
   }

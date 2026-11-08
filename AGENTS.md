@@ -26,7 +26,7 @@ Use **Bun** for everything.
 - **Framework**: TanStack Start (React SSR) with Vite and Nitro
 - **Routing**: TanStack Router, file-based, in `src/routes/`. `src/routeTree.gen.ts` is generated and gitignored.
 - **Domain folders (ADR 0010)**: each domain concept lives in `src/lib/<domain>/`:
-  - `index.ts`: the deep module, server only, wrapped in `createServerOnlyFn`. Every operation takes `(db, userId, ...)` and never opens its own client. Expected failures come back as `{ ok: false, reason }`, with the codes and messages in `src/lib/error-codes.ts`. Database errors still throw.
+  - `index.ts`: the deep module, server only, wrapped in `createServerOnlyFn`. Every operation takes `(db, userId, ...)` and never opens its own client. The auth module takes `(db, cookies, ...)` instead, because it is where the user comes from: `cookies` is the session cookie as a `{ get, set, delete }` seam. Expected failures come back as `{ ok: false, reason }`, with the codes and messages in `src/lib/error-codes.ts`. Database errors still throw.
   - `<domain>.functions.ts`: the `createServerFn` adapters. Protected ones use `authMiddleware`, which puts `context.user` on the request.
   - `queries.ts`: the key factory, `queryOptions`, and mutations built with `serverMutationOptions` from `src/lib/server-mutation.ts`
   - `*.server.ts`: code that must never reach the browser, used only inside server-function handlers (for example `auth/session.server.ts`)
