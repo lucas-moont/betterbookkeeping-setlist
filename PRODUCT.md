@@ -42,7 +42,7 @@ A log, not a coach. Setlist records what the lifter did and shows the trend; it 
 - **Language:** the UI is in English.
 - **Stack:** TanStack Start (React SSR), Tailwind CSS v4, `lucide-react` icons, small hand-rolled primitives in `src/components/ui/`.
 - **Scope:** a take-home with a delivery deadline. Prefer the lean, sensible solution over a complete or enterprise one.
-- **Open:** the mobile navigation pattern (bottom bar or collapsible menu) is not decided yet; the responsive-layout work decides it.
+- **Phones:** a bottom tab bar replaces the sidebar below 768px (the approved prototype A; see DESIGN.md, Layout), because sets are logged at the gym with the phone in one hand and the thumb is already at the bottom.
 
 ## Brand Commitments
 
